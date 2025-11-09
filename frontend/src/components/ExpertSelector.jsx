@@ -1,0 +1,49 @@
+import React from 'react'
+
+const expertIcons = {
+  auto: '🎯',
+  story: '📚',
+  poem: '✍️',
+  email: '📧'
+}
+
+function ExpertSelector({ experts, selectedExpert, onSelectExpert }) {
+  return (
+    <div className="expert-selector">
+      <h3>Select Expert Mode:</h3>
+      <div className="expert-buttons">
+        <button
+          className={`expert-btn ${selectedExpert === 'auto' ? 'active' : ''}`}
+          onClick={() => onSelectExpert('auto')}
+        >
+          {expertIcons.auto} Auto (Router Decides)
+        </button>
+        
+        {experts.map((expert) => (
+          <button
+            key={expert.name}
+            className={`expert-btn ${selectedExpert === expert.name ? 'active' : ''}`}
+            onClick={() => onSelectExpert(expert.name)}
+            title={expert.description}
+          >
+            {expertIcons[expert.name] || '🤖'} {expert.name.charAt(0).toUpperCase() + expert.name.slice(1)}
+          </button>
+        ))}
+      </div>
+      
+      {selectedExpert === 'auto' && (
+        <p className="expert-hint">
+          The router will analyze your prompt and automatically select the best expert!
+        </p>
+      )}
+      
+      {selectedExpert !== 'auto' && (
+        <p className="expert-hint">
+          {experts.find(e => e.name === selectedExpert)?.description || 'Expert selected'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+export default ExpertSelector
