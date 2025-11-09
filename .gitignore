@@ -137,3 +137,94 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# ----------------------------------------------------------------------
+# 1. PYTHON (Language-Specific)
+# ----------------------------------------------------------------------
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+# This is the most important one for your project!
+venv/
+env/
+.venv/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.cache
+.pytest_cache/
+
+# ----------------------------------------------------------------------
+# 2. OPERATING SYSTEM (OS-Specific)
+# ----------------------------------------------------------------------
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS (if you ever open the project on a Mac)
+.DS_Store
+
+# ----------------------------------------------------------------------
+# 3. IDE / Editor (VS Code, PyCharm, etc.)
+# ----------------------------------------------------------------------
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json    # OPTIONAL: You may want to share some settings
+!.vscode/tasks.json       # OPTIONAL: You may want to share some tasks
+!.vscode/launch.json      # OPTIONAL: You may want to share launch configs
+!.vscode/extensions.json  # OPTIONAL: You may want to share extensions
+
+# PyCharm / IntelliJ IDEs
+.idea/
+
+# ----------------------------------------------------------------------
+# 4. ENVIRONMENT & SENSITIVE DATA (Crucial for Security)
+# ----------------------------------------------------------------------
+
+# Local configuration files that should NOT be public
+# These often contain secrets, passwords, or local setup differences.
+.env
+.env.*
+*.log
+local_settings.py
+
+# ----------------------------------------------------------------------
+# 5. DOCKER
+# ----------------------------------------------------------------------
+
+# Exclude all Docker images/volumes artifacts
+*.swp
+*.bak
+.docker/
