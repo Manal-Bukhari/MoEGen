@@ -162,4 +162,4 @@ if __name__ == "__main__":
     result = pipeline.generate_email(
         "Write a professional sick-leave email to HR requesting leave for 17-18 November 2025"
     )
-    print(result['final_email'])
+    logger.info(f"Generated email:\n{result['final_email']}")

@@ -24,42 +24,78 @@ class OutputParser:
         # Fix formatting
         text = self._fix_formatting(text)
         
-        # Ensure completeness
-        text = self._ensure_completeness(text)
+        # Ensure completeness (pass enhanced_query for sender name extraction)
+        text = self._ensure_completeness(text, enhanced_query)
         
         logger.info(f"✅ Parsed to {len(text)} chars")
         return text.strip()
     
     def _remove_instruction_prefix(self, text: str) -> str:
-        """Remove ONLY instruction before Subject line."""
+        """Remove ALL instruction text before the actual email."""
         lines = text.split('\n')
         
-        # Find Subject line
+        # Strategy: Find where the actual email starts by looking for multiple signals
+        # The actual email should have: Subject + nearby greeting (Dear/Hello)
+        
+        subject_indices = []
         for i, line in enumerate(lines):
             if line.strip().lower().startswith('subject:'):
-                return '\n'.join(lines[i:])
+                subject_indices.append(i)
         
-        # No subject found, remove obvious instructions at start
+        # If multiple Subject lines, the LAST one is usually the real email
+        if len(subject_indices) > 1:
+            # Return from the last Subject line
+            return '\n'.join(lines[subject_indices[-1]:])
+        elif len(subject_indices) == 1:
+            idx = subject_indices[0]
+            # Check if there's a greeting within next 5 lines
+            has_nearby_greeting = False
+            for j in range(idx, min(idx + 6, len(lines))):
+                if any(greeting in lines[j].lower() for greeting in ['dear ', 'hello ', 'hi ']):
+                    has_nearby_greeting = True
+                    break
+            
+            if has_nearby_greeting:
+                # This looks like the real email
+                return '\n'.join(lines[idx:])
+        
+        # Fallback: aggressively filter instructions
         filtered = []
-        skip_initial = True
+        skip_mode = True
+        found_dear = False
         
         for line in lines:
-            stripped = line.strip()
+            stripped = line.strip().lower()
             
-            # Skip template lines with brackets
-            if '[' in stripped and ']' in stripped and any(x in stripped.lower() for x in ['detailed', 'recipient', 'complete paragraph', 'supporting', 'your name']):
+            # Skip empty lines in skip mode
+            if skip_mode and not stripped:
                 continue
             
-            if skip_initial:
-                if any(stripped.lower().startswith(x) for x in [
-                    'write a', 'generate', 'create a', 'task:', 'instruction:',
-                    'you are', 'critical rules:', 'requirements:', 'rules:', 'critical requirements:'
-                ]):
+            # Skip instruction keywords
+            if skip_mode:
+                skip_patterns = [
+                    'write a', 'write complete', 'generate', 'create a', 'requesting leave',
+                    'mention that', 'keep the tone', 'must include:', 'format:',
+                    'sender:', 'recipient:', 'purpose:', 'dates:', 'reason:',
+                    'availability:', 'documentation:', 'closing signed'
+                ]
+                
+                if any(pattern in stripped for pattern in skip_patterns):
                     continue
-                else:
-                    skip_initial = False
+                
+                # Once we find "Dear" followed by actual content, stop skipping
+                if stripped.startswith('dear ') or stripped.startswith('hello '):
+                    skip_mode = False
+                    found_dear = True
             
-            filtered.append(line)
+            # Also check for Subject line that looks real (followed by content)
+            if not found_dear and stripped.startswith('subject:') and len(stripped) > 10:
+                skip_mode = False
+            
+            if not skip_mode:
+                filtered.append(line)
+        
+        return '\n'.join(filtered)
         
         return '\n'.join(filtered)
     
@@ -106,17 +142,35 @@ class OutputParser:
         text = re.sub(r'\|\|+', '', text)
         return text
     
-    def _ensure_completeness(self, text: str) -> str:
-        """Add closing if missing."""
+    def _ensure_completeness(self, text: str, enhanced_query: Dict[str, Any] = None) -> str:
+        """✅ Add closing if missing and replace [Your Name] with actual sender name."""
+        
+        # Extract sender name from enhanced_query key_points
+        sender_name = None
+        if enhanced_query:
+            key_points = enhanced_query.get('key_points', [])
+            for point in key_points:
+                if 'sender:' in point.lower():
+                    sender_name = point.split(':', 1)[1].strip()
+                    break
+        
         has_closing = bool(re.search(r'(best regards|sincerely|regards|thank you|thanks),?\s*$', 
                                      text, re.IGNORECASE | re.MULTILINE))
         
         if not has_closing:
-            text = text.rstrip() + "\n\nBest regards,\n[Your Name]"
+            closing = "\n\nBest regards,\n"
+            closing += sender_name if sender_name else "[Your Name]"
+            text = text.rstrip() + closing
         
+        # ✅ Replace [Your Name] placeholder with actual sender name
+        if sender_name:
+            text = re.sub(r'\[Your Name\]|\[Name\]', sender_name, text, flags=re.IGNORECASE)
+        
+        # If still has placeholder but no closing signature, add one
         has_signature = bool(re.search(r'\[your name\]|\[name\]', text, re.IGNORECASE))
-        if not has_signature and has_closing:
-            text = text.rstrip() + "\n[Your Name]"
+        if has_signature and not sender_name:
+            # No sender name available, keep placeholder but ensure it's properly formatted
+            text = re.sub(r'\[Your Name\]|\[your name\]|\[Name\]|\[name\]', '[Your Name]', text, flags=re.IGNORECASE)
         
         return text
     

@@ -447,11 +447,11 @@ if __name__ == "__main__":
     evaluator = EmailEvaluator()  # Will read from .env
     
     if not evaluator.enabled:
-        print("❌ No API key")
+        logger.error("❌ No API key")
     else:
-        print("\n" + "="*60)
-        print("TEST 1: WRONG EMAIL (from your screenshot)")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("TEST 1: WRONG EMAIL (from your screenshot)")
+        logger.info("="*60)
         
         wrong_email = """Subject: Sick Leave Request
 
@@ -465,19 +465,19 @@ Best regards,
             wrong_email
         )
         
-        print(f"\n📊 LLM Score: {result.get('llm_score', 0):.1f}")
-        print(f"   Penalty: {result.get('penalty', 0):.1f}")
-        print(f"   Final Score: {result['score']:.1f}")
-        print(f"   Passed: {result['passed']}")
-        print(f"   Feedback: {result['feedback']}")
+        logger.info(f"\n📊 LLM Score: {result.get('llm_score', 0):.1f}")
+        logger.info(f"   Penalty: {result.get('penalty', 0):.1f}")
+        logger.info(f"   Final Score: {result['score']:.1f}")
+        logger.info(f"   Passed: {result['passed']}")
+        logger.info(f"   Feedback: {result['feedback']}")
         if result.get('critical_errors'):
-            print(f"   Critical Errors:")
+            logger.info(f"   Critical Errors:")
             for error in result['critical_errors']:
-                print(f"      - {error}")
+                logger.info(f"      - {error}")
         
-        print("\n" + "="*60)
-        print("TEST 2: CORRECT EMAIL")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("TEST 2: CORRECT EMAIL")
+        logger.info("="*60)
         
         good_email = """Subject: Sick Leave Request - November 17-18, 2025
 
@@ -497,8 +497,8 @@ John Doe"""
             good_email
         )
         
-        print(f"\n📊 LLM Score: {result2.get('llm_score', 0):.1f}")
-        print(f"   Penalty: {result2.get('penalty', 0):.1f}")
-        print(f"   Final Score: {result2['score']:.1f}")
-        print(f"   Passed: {result2['passed']}")
-        print(f"   Feedback: {result2['feedback']}")
+        logger.info(f"\n📊 LLM Score: {result2.get('llm_score', 0):.1f}")
+        logger.info(f"   Penalty: {result2.get('penalty', 0):.1f}")
+        logger.info(f"   Final Score: {result2['score']:.1f}")
+        logger.info(f"   Passed: {result2['passed']}")
+        logger.info(f"   Feedback: {result2['feedback']}")
