@@ -11,13 +11,12 @@ const api = axios.create({
 
 /**
  * Generate text using the MoE system
+ * Parameters (max_length, temperature) are now configured in backend .env file
  */
-export const generateText = async (prompt, maxLength = 150, temperature = 0.7, expert = null) => {
+export const generateText = async (prompt, expert = null) => {
   try {
     const response = await api.post('/generate', {
       prompt,
-      max_length: maxLength,
-      temperature,
       expert: expert === 'auto' ? null : expert,
     })
     return response.data

@@ -1,13 +1,22 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import logging
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from routers.text_router import TextRouter
 from experts.story_expert import StoryExpert
 from experts.poem_expert import PoemExpert
-from experts.email_expert import EmailExpert
+
+# Import the email pipeline
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'experts', 'email-expert'))
+from email_pipeline import EmailPipeline
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,20 +41,29 @@ app.add_middleware(
 # Initialize experts
 story_expert = StoryExpert()
 poem_expert = PoemExpert()
-email_expert = EmailExpert()
 
+# Initialize email pipeline with Gemini API key
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key:
+    logger.warning("⚠️ GEMINI_API_KEY not set. Email expert will use fallback mode (no AI enhancement).")
+
+# ✅ FIXED: No hardcoded parameters - reads from .env
+email_pipeline = EmailPipeline(
+    google_api_key=gemini_api_key
+    # use_evaluator, eval_threshold, max_retries all read from .env
+)
 # Initialize router
 text_router = TextRouter(
     story_expert=story_expert,
     poem_expert=poem_expert,
-    email_expert=email_expert
+    email_expert=email_pipeline  # Pass the pipeline instead of direct expert
 )
 
 # Request/Response models
 class GenerationRequest(BaseModel):
     prompt: str
-    max_length: Optional[int] = 150
-    temperature: Optional[float] = 0.7
+    max_length: Optional[int] = None  # ✅ Now optional - uses .env defaults
+    temperature: Optional[float] = None  # ✅ Now optional - uses .env defaults
     expert: Optional[str] = None  # Optional: force a specific expert
 
 class GenerationResponse(BaseModel):
@@ -53,7 +71,6 @@ class GenerationResponse(BaseModel):
     expert_used: str
     confidence: float
     prompt: str
-
 @app.get("/")
 async def root():
     """Root endpoint"""

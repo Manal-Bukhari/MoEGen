@@ -3,8 +3,6 @@ import { generateText } from '../services/api'
 
 function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
   const [prompt, setPrompt] = useState('')
-  const [maxLength, setMaxLength] = useState(150)
-  const [temperature, setTemperature] = useState(0.7)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -18,8 +16,6 @@ function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
     try {
       const result = await generateText(
         prompt,
-        maxLength,
-        temperature,
         selectedExpert
       )
       onGenerate(result)
@@ -84,45 +80,6 @@ function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
               {example}
             </button>
           ))}
-        </div>
-
-        <div className="settings-row">
-          <div className="form-group">
-            <label htmlFor="maxLength">
-              Max Length: <span className="value">{maxLength}</span>
-            </label>
-            <input
-              type="range"
-              id="maxLength"
-              min="50"
-              max="300"
-              value={maxLength}
-              onChange={(e) => setMaxLength(Number(e.target.value))}
-            />
-            <div className="range-labels">
-              <span>50</span>
-              <span>300</span>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="temperature">
-              Temperature: <span className="value">{temperature}</span>
-            </label>
-            <input
-              type="range"
-              id="temperature"
-              min="0.1"
-              max="1.5"
-              step="0.1"
-              value={temperature}
-              onChange={(e) => setTemperature(Number(e.target.value))}
-            />
-            <div className="range-labels">
-              <span>0.1 (Focused)</span>
-              <span>1.5 (Creative)</span>
-            </div>
-          </div>
         </div>
 
         <button type="submit" className="generate-btn">
