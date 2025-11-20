@@ -520,7 +520,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For questions or issues:
 - **GitHub Issues**: [MoEGen Issues](https://github.com/Manal-Bukhari/MoEGen/issues)
-- **Email**: manal.bukhari@nu.edu.pk
+- **Email**: manalbukhari2233@gmail.com
 
 ---
 
