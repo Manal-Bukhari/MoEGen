@@ -9,14 +9,11 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from routers.text_router import TextRouter
-from experts.story_expert import StoryExpert
-from experts.poem_expert import PoemExpert
-
-# Import the email pipeline
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'experts', 'email-expert'))
-from email_pipeline import EmailPipeline
+# TODO: Import LangGraph agents when implemented
+# from experts.story_expert.agent import StoryExpertAgent
+# from experts.poem_expert.agent import PoemExpertAgent
+# from experts.email_expert.agent import EmailExpertAgent
+# from routers.text_router import TextRouter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,26 +35,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize experts
-story_expert = StoryExpert()
-poem_expert = PoemExpert()
+# TODO: Initialize LangGraph agents when implemented
+# gemini_api_key = os.getenv("GEMINI_API_KEY")
+# if not gemini_api_key:
+#     logger.warning("⚠️ GEMINI_API_KEY not set.")
 
-# Initialize email pipeline with Gemini API key
-gemini_api_key = os.getenv("GEMINI_API_KEY")
-if not gemini_api_key:
-    logger.warning("⚠️ GEMINI_API_KEY not set. Email expert will use fallback mode (no AI enhancement).")
+# story_expert_agent = StoryExpertAgent()
+# poem_expert_agent = PoemExpertAgent()
+# email_expert_agent = EmailExpertAgent()
 
-# ✅ FIXED: No hardcoded parameters - reads from .env
-email_pipeline = EmailPipeline(
-    google_api_key=gemini_api_key
-    # use_evaluator, eval_threshold, max_retries all read from .env
-)
-# Initialize router
-text_router = TextRouter(
-    story_expert=story_expert,
-    poem_expert=poem_expert,
-    email_expert=email_pipeline  # Pass the pipeline instead of direct expert
-)
+# Initialize router (will be updated when agents are implemented)
+# from routers.text_router import TextRouter
+# text_router = TextRouter(
+#     story_expert=story_expert_agent,
+#     poem_expert=poem_expert_agent,
+#     email_expert=email_expert_agent
+# )
+text_router = None  # Placeholder until agents are implemented
 
 # Request/Response models
 class GenerationRequest(BaseModel):
@@ -120,6 +114,13 @@ async def generate_text(request: GenerationRequest):
     The router will automatically select the best expert based on the input prompt,
     or you can force a specific expert using the 'expert' parameter.
     """
+    # TODO: Implement when LangGraph agents are ready
+    if text_router is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="Service not ready: LangGraph agents are not yet implemented"
+        )
+    
     try:
         logger.info(f"Received generation request: {request.prompt[:50]}...")
         
@@ -149,6 +150,13 @@ async def generate_with_expert(expert_name: str, request: GenerationRequest):
     """
     Generate text using a specific expert directly
     """
+    # TODO: Implement when LangGraph agents are ready
+    if text_router is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="Service not ready: LangGraph agents are not yet implemented"
+        )
+    
     try:
         if expert_name not in ["story", "poem", "email"]:
             raise HTTPException(status_code=404, detail=f"Expert '{expert_name}' not found")

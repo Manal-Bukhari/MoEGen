@@ -1,5 +1,4 @@
 # routers/text_router.py
-import numpy as np
 from typing import Dict, Optional
 import logging
 
