@@ -419,7 +419,7 @@ BE STRICT. If dates don't match, score must be low."""
                 )
                 
                 # Parse it
-                from output_parser import OutputParser
+                from .output_parser import OutputParser
                 parser = OutputParser()
                 current_email = parser.parse(current_email, enhanced_query)
                 
