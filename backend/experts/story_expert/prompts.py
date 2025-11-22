@@ -27,3 +27,27 @@ Length: {length_preference}
 
 Original request: {original_query}"""
 
+# --- ADDITIONS FOR ADVANCED LOGIC ---
+
+PLANNER_PROMPT = """You are a Master Story Architect. 
+Create a structural outline for a story based on:
+Genre: {genre}
+Core Idea: {original_query}
+
+Character Profile:
+{character_profile}
+
+Return a strict 5-Point Plot Outline:
+1. Inciting Incident
+2. Rising Action
+3. Midpoint Climax
+4. Low Point
+5. Final Resolution"""
+
+VALIDATOR_SYSTEM_PROMPT = """You are a strict Literary Editor. 
+Analyze the story draft. Check for:
+1. Plot holes
+2. Pacing issues
+3. Adherence to the genre: {genre}
+
+Return a score (0-10) and a short critique."""

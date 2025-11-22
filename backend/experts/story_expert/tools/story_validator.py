@@ -1,41 +1,38 @@
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
-from typing import Literal
+from .. import config
 
-llm_tool = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.0)
+# Very low temp for objective grading
+llm_tool = ChatGoogleGenerativeAI(
+    api_key=config.GEMINI_API_KEY,
+    model=config.GEMINI_MODEL,
+    temperature=0.1, 
+)
 
 class ValidationInput(BaseModel):
     story_text: str = Field(description="The draft story.")
-    original_requirements: str = Field(description="What the user asked for.")
+    genre: str = Field(description="The intended genre.")
+    system_prompt: str = Field(description="The system instruction for grading.")
 
 class ValidationOutput(BaseModel):
-    score: int = Field(description="Score out of 10.")
-    reasoning: str = Field(description="Critique details.")
+    score: int = Field(description="Quality score 0-10.")
+    critique: str = Field(description="Specific feedback.")
     needs_revision: bool = Field(description="True if score < 7.")
 
 @tool("story_validator", args_schema=ValidationInput)
-def story_validator(story_text: str, original_requirements: str) -> dict:
-    """
-    Reviews the story and returns a structured score and critique.
-    """
-    # We use structured output (JSON mode) to ensure the agent can parse the result
+def story_validator(story_text: str, genre: str, system_prompt: str) -> dict:
+    """Critiques the story and decides if it needs revision."""
+    
+    # Structured output for easy parsing
     structured_llm = llm_tool.with_structured_output(ValidationOutput)
     
-    prompt = f"""
-    Rate this story based on these requirements: {original_requirements}
+    full_prompt = f"{system_prompt.format(genre=genre)}\n\nSTORY TO REVIEW:\n{story_text}"
     
-    Story:
-    {story_text}
+    response = structured_llm.invoke(full_prompt)
     
-    If the plot is weak or requirements are missed, score it low.
-    If it is excellent, score high.
-    """
-    response = structured_llm.invoke(prompt)
-    
-    # Return as dict for the state graph
     return {
         "score": response.score,
-        "critique": response.reasoning,
+        "critique": response.critique,
         "needs_revision": response.needs_revision
     }

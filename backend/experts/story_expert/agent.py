@@ -1,76 +1,88 @@
-from typing import TypedDict, Optional, List
+from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-# Imports
-from .config import DEFAULT_GENRE, DEFAULT_TONE
-from .prompts import STORY_SYSTEM_PROMPT, STORY_USER_PROMPT_TEMPLATE
+# --- IMPORTS ---
+from . import config
+from .prompts import (
+    STORY_SYSTEM_PROMPT, 
+    STORY_USER_PROMPT_TEMPLATE, 
+    PLANNER_PROMPT, 
+    VALIDATOR_SYSTEM_PROMPT
+)
 from .tools import character_generator, plot_outliner, story_validator
 
-# --- Advanced State ---
+# --- STATE DEFINITION ---
 class StoryState(TypedDict):
-    # Inputs
     original_query: str
+    enhanced_instruction: Optional[str]
     genre: str
     tone: str
     
-    # Planning Artifacts
+    # Internal Workflow Data
     character_profile: Optional[str]
     plot_outline: Optional[str]
-    
-    # Drafting & Iteration
     current_draft: Optional[str]
-    critique_feedback: Optional[str]
-    revision_count: int  # To prevent infinite loops
+    critique: Optional[str]
+    revision_count: int
     
-    # Output
+    # Final Output
     final_story: str
 
-# Model
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.7)
+# --- MODEL INIT (Using Config) ---
+llm = ChatGoogleGenerativeAI(
+    api_key=config.GEMINI_API_KEY,
+    model=config.GEMINI_MODEL,
+    temperature=config.TEMPERATURE,
+    max_output_tokens=config.MAX_TOKENS,
+)
 
-# --- Nodes ---
+# --- NODES ---
 
 def node_planner(state: StoryState):
-    """Step 1: Generate Character and Plot Outline."""
-    print("--- STORY EXPERT: Planning ---")
+    """Step 1: Generate Character & Outline"""
+    print("--- PLANNER: Architecting Story ---")
+    genre = state.get("genre") or config.DEFAULT_GENRE
     
-    genre = state.get("genre") or DEFAULT_GENRE
-    
-    # 1. Create Character
+    # 1. Generate Character
     char_profile = character_generator.invoke({
         "archetype": "Protagonist", 
-        "setting": f"A {genre} world",
-        "theme": state["original_query"]
-    })
-    
-    # 2. Create Outline using that character
-    outline = plot_outliner.invoke({
-        "character_profile": char_profile,
         "genre": genre
     })
     
-    return {"character_profile": char_profile, "plot_outline": outline, "revision_count": 0}
+    # 2. Generate Outline (Using the PLANNER_PROMPT from prompts.py)
+    outline = plot_outliner.invoke({
+        "character_profile": char_profile,
+        "genre": genre,
+        "prompt_template": PLANNER_PROMPT
+    })
+    
+    return {
+        "character_profile": char_profile, 
+        "plot_outline": outline, 
+        "revision_count": 0
+    }
 
 def node_writer(state: StoryState):
-    """Step 2: Write (or Re-write) the Draft."""
-    print("--- STORY EXPERT: Writing Draft ---")
+    """Step 2: Write the Draft"""
+    print(f"--- WRITER: Drafting (Revision {state['revision_count']}) ---")
     
-    # If there is feedback, we are in a revision loop
-    feedback_instruction = ""
-    if state.get("critique_feedback"):
-        feedback_instruction = f"\nIMPORTANT FIXES NEEDED: {state['critique_feedback']}"
+    # We construct the 'key_elements' field using our Plan + Any Critique
+    plan_context = f"STORY PLAN:\n{state['plot_outline']}\n\nCHARACTER:\n{state['character_profile']}"
     
-    prompt = f"""
-    Write a story based on this plan.
-    
-    CHARACTER: {state['character_profile']}
-    PLOT OUTLINE: {state['plot_outline']}
-    TONE: {state.get("tone") or DEFAULT_TONE}
-    
-    {feedback_instruction}
-    """
+    if state.get("critique"):
+        plan_context += f"\n\nCRITICAL FEEDBACK TO FIX:\n{state['critique']}"
+
+    # Use YOUR specific User Prompt Template
+    prompt = STORY_USER_PROMPT_TEMPLATE.format(
+        enhanced_instruction=state.get("enhanced_instruction") or state["original_query"],
+        genre=state.get("genre") or config.DEFAULT_GENRE,
+        tone=state.get("tone") or config.DEFAULT_TONE,
+        key_elements=plan_context, # Injecting the plan here
+        length_preference="Standard",
+        original_query=state["original_query"]
+    )
     
     messages = [SystemMessage(content=STORY_SYSTEM_PROMPT), HumanMessage(content=prompt)]
     response = llm.invoke(messages)
@@ -78,56 +90,46 @@ def node_writer(state: StoryState):
     return {"current_draft": response.content, "revision_count": state["revision_count"] + 1}
 
 def node_reviewer(state: StoryState):
-    """Step 3: Evaluate the draft."""
-    print("--- STORY EXPERT: Reviewing ---")
+    """Step 3: Quality Control"""
+    print("--- REVIEWER: Validating ---")
     
-    validation = story_validator.invoke({
+    result = story_validator.invoke({
         "story_text": state["current_draft"],
-        "original_requirements": state["original_query"]
+        "genre": state.get("genre") or config.DEFAULT_GENRE,
+        "system_prompt": VALIDATOR_SYSTEM_PROMPT
     })
     
-    # We store the feedback to be used if we loop back
     return {
-        "critique_feedback": validation["critique"], 
-        # We store a temporary flag in state to help the conditional edge decide
-        "needs_revision": validation["needs_revision"] 
+        "critique": result["critique"], 
+        "needs_revision": result["needs_revision"],
+        "final_story": state["current_draft"] # Update final story tentatively
     }
 
-# --- Conditional Logic ---
+# --- EDGES ---
 
 def should_revise(state: StoryState):
-    """Decides whether to loop back to 'writer' or finish."""
-    
-    # If logic says revise AND we haven't tried too many times (max 2 revisions)
-    if state.get("needs_revision") and state["revision_count"] < 3:
-        print("--- DECISION: Revise Story ---")
+    # Stop if good enough OR if we have tried 2 times already
+    if state["needs_revision"] and state["revision_count"] < 2:
         return "revise"
-    
-    print("--- DECISION: Publish Story ---")
     return "publish"
 
-# --- Graph Construction ---
-
+# --- GRAPH ---
 workflow = StateGraph(StoryState)
 
 workflow.add_node("planner", node_planner)
 workflow.add_node("writer", node_writer)
 workflow.add_node("reviewer", node_reviewer)
 
-# Entry
 workflow.set_entry_point("planner")
-
-# Flow
 workflow.add_edge("planner", "writer")
 workflow.add_edge("writer", "reviewer")
 
-# Conditional Edge
 workflow.add_conditional_edges(
     "reviewer",
     should_revise,
     {
-        "revise": "writer",  # Go back to writing
-        "publish": END       # Finish
+        "revise": "writer",
+        "publish": END
     }
 )
 

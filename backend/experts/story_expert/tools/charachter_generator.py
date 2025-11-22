@@ -1,30 +1,32 @@
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
+from .. import config  # Import your config file
 
-llm_tool = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.8)
+# Initialize tool-specific model
+llm_tool = ChatGoogleGenerativeAI(
+    api_key=config.GEMINI_API_KEY,
+    model=config.GEMINI_MODEL,
+    temperature=0.8,  # High creativity for characters
+)
 
 class CharacterInput(BaseModel):
     archetype: str = Field(description="The role (e.g., 'Reluctant Hero').")
-    setting: str = Field(description="The story world.")
-    theme: str = Field(description="The central theme (e.g., 'Betrayal').")
+    genre: str = Field(description="The story genre.")
 
 @tool("character_generator", args_schema=CharacterInput)
-def character_generator(archetype: str, setting: str, theme: str) -> str:
-    """
-    Generates a complex character profile with internal conflict and a growth arc.
-    """
-    prompt = f"""
-    Create a deep, complex character profile.
-    Archetype: {archetype}
-    Setting: {setting}
-    Theme: {theme}
+def character_generator(archetype: str, genre: str) -> str:
+    """Generates a deep character profile with internal motivations."""
     
-    Output specific sections:
-    1. Core Identity (Name, Age, Look)
-    2. The Ghost (A past trauma or event haunting them)
-    3. The Lie ( A misconception they have about themselves)
-    4. The Want vs. The Need (External goal vs Internal growth)
+    prompt = f"""
+    Create a complex character for a {genre} story.
+    Archetype: {archetype}
+    
+    Define:
+    1. Name & Look
+    2. The 'Lie' they believe about themselves
+    3. The 'Ghost' (past trauma)
+    4. The Goal
     """
     response = llm_tool.invoke(prompt)
     return response.content
