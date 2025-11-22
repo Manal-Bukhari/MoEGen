@@ -2,6 +2,7 @@
 Story Expert Prompts
 Prompt templates for story generation.
 """
+
 # System prompt for story generation
 STORY_SYSTEM_PROMPT = """You are a creative story writer. Generate engaging, imaginative narratives with vivid descriptions and compelling characters. Focus on storytelling elements like plot, character development, and descriptive language.
 
