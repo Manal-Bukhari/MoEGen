@@ -7,6 +7,7 @@ import json
 import re
 from typing import Dict, Any, List
 import google.generativeai as genai
+from utils.json_parser import parse_json_robust
 
 logger = logging.getLogger(__name__)
 
@@ -71,34 +72,14 @@ class TemplateGenerator:
             result_text = response.text.strip()
             logger.debug(f"   Raw response length: {len(result_text)} chars")
             
-            # Extract JSON from response
-            logger.debug("🔧 Extracting JSON from response...")
-            if "```json" in result_text:
-                result_text = result_text.split("```json")[1].split("```")[0].strip()
-                logger.debug("   Found JSON in ```json code block")
-            elif "```" in result_text:
-                result_text = result_text.split("```")[1].split("```")[0].strip()
-                logger.debug("   Found JSON in ``` code block")
-            
-            # Clean JSON
-            logger.debug("🧹 Cleaning JSON...")
-            result_text = ' '.join(result_text.split())
-            result_text = re.sub(r',(\s*[}\]])', r'\1', result_text)
-            result_text = result_text.replace("'", '"')
-            
-            if '{' in result_text and '}' in result_text:
-                start = result_text.find('{')
-                end = result_text.rfind('}') + 1
-                result_text = result_text[start:end]
-                logger.debug(f"   Extracted JSON range: {start} to {end}")
-            
+            # Use robust JSON parser
+            logger.debug("🔧 Parsing JSON with robust parser...")
             try:
-                logger.debug("📦 Parsing JSON...")
-                template_data = json.loads(result_text)
+                template_data = parse_json_robust(result_text)
                 logger.debug(f"   Successfully parsed JSON with keys: {list(template_data.keys())}")
-            except json.JSONDecodeError as e:
+            except (json.JSONDecodeError, ValueError) as e:
                 logger.error(f"❌ JSON parse error: {e}")
-                logger.debug(f"   Problematic JSON (first 300 chars): {result_text[:300]}")
+                logger.debug(f"   Problematic JSON (first 500 chars): {result_text[:500]}")
                 logger.warning("⚠️ Falling back to fallback generation")
                 return self._fallback_generate(extracted_context, enhanced_query)
             

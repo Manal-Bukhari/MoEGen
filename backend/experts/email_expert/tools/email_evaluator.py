@@ -9,6 +9,7 @@ import re
 from typing import Dict, Any, Tuple, List
 from datetime import datetime
 import google.generativeai as genai
+from utils.json_parser import parse_json_robust
 
 logger = logging.getLogger(__name__)
 
@@ -321,21 +322,15 @@ BE STRICT. If dates don't match, score must be low."""
             result = response.text.strip()
             logger.debug(f"   Raw response length: {len(result)} chars")
             
-            # Extract JSON
-            logger.debug("🔧 Extracting JSON from evaluation response...")
-            if "```json" in result:
-                result = result.split("```json")[1].split("```")[0].strip()
-                logger.debug("   Found JSON in ```json code block")
-            elif "```" in result:
-                result = result.split("```")[1].split("```")[0].strip()
-                logger.debug("   Found JSON in ``` code block")
-            
-            # Clean and parse
-            logger.debug("🧹 Cleaning and parsing JSON...")
-            result = result.replace('\n', ' ')
-            result = re.sub(r',(\s*[}\]])', r'\1', result)
-            evaluation = json.loads(result)
-            logger.debug(f"   Successfully parsed evaluation JSON")
+            # Use robust JSON parser
+            logger.debug("🔧 Parsing JSON with robust parser...")
+            try:
+                evaluation = parse_json_robust(result)
+                logger.debug(f"   Successfully parsed evaluation JSON with keys: {list(evaluation.keys())}")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.error(f"❌ JSON parse error: {e}")
+                logger.debug(f"   Problematic JSON (first 500 chars): {result[:500]}")
+                raise
             
             llm_score = evaluation.get("overall_score", 0)
             logger.debug(f"   LLM overall score: {llm_score:.1f}")
