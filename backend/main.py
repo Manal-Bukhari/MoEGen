@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# TODO: Import LangGraph agents when implemented
+# Import LangGraph agents
 # from experts.story_expert.agent import StoryExpertAgent
 # from experts.poem_expert.agent import PoemExpertAgent
-# from experts.email_expert.agent import EmailExpertAgent
-# from routers.text_router import TextRouter
+from experts.email_expert.agent import EmailExpertAgent
+from routers.text_router import TextRouter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,23 +35,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# TODO: Initialize LangGraph agents when implemented
-# gemini_api_key = os.getenv("GEMINI_API_KEY")
-# if not gemini_api_key:
-#     logger.warning("⚠️ GEMINI_API_KEY not set.")
+# Initialize LangGraph agents
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key:
+    logger.warning("⚠️ GEMINI_API_KEY not set.")
 
-# story_expert_agent = StoryExpertAgent()
-# poem_expert_agent = PoemExpertAgent()
-# email_expert_agent = EmailExpertAgent()
+# story_expert_agent = StoryExpertAgent()  # TODO: Implement when ready
+# poem_expert_agent = PoemExpertAgent()  # TODO: Implement when ready
+email_expert_agent = EmailExpertAgent()
 
-# Initialize router (will be updated when agents are implemented)
-# from routers.text_router import TextRouter
-# text_router = TextRouter(
-#     story_expert=story_expert_agent,
-#     poem_expert=poem_expert_agent,
-#     email_expert=email_expert_agent
-# )
-text_router = None  # Placeholder until agents are implemented
+# Initialize router
+text_router = TextRouter(
+    story_expert=None,  # TODO: Replace with story_expert_agent when ready
+    poem_expert=None,  # TODO: Replace with poem_expert_agent when ready
+    email_expert=email_expert_agent
+)
 
 # Request/Response models
 class GenerationRequest(BaseModel):
@@ -122,9 +120,12 @@ async def generate_text(request: GenerationRequest):
         )
     
     try:
-        logger.info(f"Received generation request: {request.prompt[:50]}...")
+        logger.info(f"📥 Received generation request")
+        logger.info(f"   Prompt: {request.prompt[:100]}...")
+        logger.debug(f"   max_length: {request.max_length}, temperature: {request.temperature}, expert: {request.expert}")
         
         # Route the request to the appropriate expert
+        logger.info("🔄 Routing request to expert...")
         result = text_router.route_and_generate(
             prompt=request.prompt,
             max_length=request.max_length,
@@ -132,17 +133,24 @@ async def generate_text(request: GenerationRequest):
             force_expert=request.expert
         )
         
-        logger.info(f"Generated text using {result['expert']} expert")
+        logger.info(f"✅ Generation complete")
+        logger.info(f"   Expert used: {result['expert']}")
+        logger.info(f"   Confidence: {result['confidence']:.1%}")
+        logger.info(f"   Generated text length: {len(result['generated_text'])} chars")
+        logger.debug(f"   Generated text preview: {result['generated_text'][:150]}...")
         
-        return GenerationResponse(
+        # Build response
+        response = GenerationResponse(
             generated_text=result["generated_text"],
             expert_used=result["expert"],
             confidence=result["confidence"],
             prompt=request.prompt
         )
+        logger.info(f"📤 Returning response to client")
+        return response
         
     except Exception as e:
-        logger.error(f"Error generating text: {str(e)}")
+        logger.error(f"❌ Error generating text: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/generate/{expert_name}")
@@ -150,25 +158,38 @@ async def generate_with_expert(expert_name: str, request: GenerationRequest):
     """
     Generate text using a specific expert directly
     """
-    # TODO: Implement when LangGraph agents are ready
+    # Check if router is ready
     if text_router is None:
         raise HTTPException(
             status_code=503, 
-            detail="Service not ready: LangGraph agents are not yet implemented"
+            detail="Service not ready: Router not initialized"
         )
     
     try:
         if expert_name not in ["story", "poem", "email"]:
             raise HTTPException(status_code=404, detail=f"Expert '{expert_name}' not found")
         
-        logger.info(f"Forcing generation with {expert_name} expert")
+        # Only email expert is implemented
+        if expert_name != "email":
+            raise HTTPException(
+                status_code=503,
+                detail=f"Expert '{expert_name}' is not yet implemented. Only 'email' expert is available."
+            )
         
+        logger.info(f"📥 Received forced generation request for {expert_name} expert")
+        logger.info(f"   Prompt: {request.prompt[:100]}...")
+        logger.debug(f"   max_length: {request.max_length}, temperature: {request.temperature}")
+        
+        logger.info(f"🔄 Forcing generation with {expert_name} expert...")
         result = text_router.route_and_generate(
             prompt=request.prompt,
             max_length=request.max_length,
             temperature=request.temperature,
             force_expert=expert_name
         )
+        
+        logger.info(f"✅ Generation complete: {result['expert']} expert, {len(result['generated_text'])} chars")
+        logger.info(f"📤 Returning response to client")
         
         return GenerationResponse(
             generated_text=result["generated_text"],
