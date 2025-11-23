@@ -1,6 +1,7 @@
 # routers/text_router.py
 from typing import Dict, Optional
 import logging
+from services.query_enhancer import QueryEnhancer
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,8 @@ class TextRouter:
             "poem": poem_expert,
             "email": email_expert
         }
+        # Initialize QueryEnhancer for email requests
+        self.query_enhancer = QueryEnhancer()
         
         # ✅ Simple keyword lists
         self.expert_keywords = {
@@ -110,21 +113,34 @@ class TextRouter:
     
     def select_expert(self, prompt: str, force_expert: Optional[str] = None) -> tuple:
         """Select the best expert for the given prompt."""
+        logger.debug(f"🎯 TextRouter.select_expert() called")
+        logger.debug(f"   Prompt: {prompt[:100]}..., force_expert: {force_expert}")
+        
         # Handle forced expert selection
         if force_expert:
+            logger.info(f"🔧 Force expert requested: {force_expert}")
             if force_expert in self.experts:
+                if self.experts[force_expert] is None:
+                    logger.error(f"❌ Expert '{force_expert}' is not implemented")
+                    raise ValueError(f"Expert '{force_expert}' is not yet implemented. Only 'email' expert is available.")
                 logger.info(f"✅ Forcing expert: {force_expert}")
                 return force_expert, 1.0
             else:
+                logger.error(f"❌ Unknown expert: {force_expert}")
                 raise ValueError(f"Unknown expert: {force_expert}. Available: {list(self.experts.keys())}")
         
         # Calculate scores
+        logger.debug("📊 Calculating expert scores...")
         scores = self.calculate_expert_scores(prompt)
         total_matches = sum(scores.values())
+        logger.debug(f"   Total keyword matches: {total_matches}")
         
         # Handle no matches - default to email for professional requests
         if total_matches == 0:
             logger.warning("⚠️ No keyword matches found - defaulting to email expert")
+            if self.experts["email"] is None:
+                logger.error("❌ Email expert is not available")
+                raise ValueError("Email expert is not available. Cannot default to email expert.")
             return "email", 0.5
         
         # Select expert with highest score
@@ -137,6 +153,14 @@ class TextRouter:
         logger.info(f"✅ Selected: {best_expert.upper()} expert")
         logger.info(f"   Matches: {best_score}/{total_matches} keywords")
         logger.info(f"   Confidence: {confidence:.1%}")
+        
+        # Verify selected expert is available
+        if self.experts[best_expert] is None:
+            logger.error(f"❌ Selected expert '{best_expert}' is not implemented")
+            if best_expert != "email" and self.experts["email"] is not None:
+                logger.warning(f"⚠️ Falling back to email expert")
+                return "email", 0.5
+            raise ValueError(f"Expert '{best_expert}' is not yet implemented. Only 'email' expert is available.")
         
         return best_expert, confidence
     
@@ -163,56 +187,88 @@ class TextRouter:
             - confidence: Routing confidence score
             - all_scores: Scores for all experts
         """
+        logger.info(f"🔄 TextRouter.route_and_generate() called")
+        logger.info(f"   Prompt: {prompt[:100]}...")
+        logger.debug(f"   max_length: {max_length}, temperature: {temperature}, force_expert: {force_expert}")
+        
         # Select the best expert
+        logger.info("🎯 Selecting expert...")
         expert_name, confidence = self.select_expert(prompt, force_expert)
         expert = self.experts[expert_name]
+        logger.info(f"   Selected expert: {expert_name}, Confidence: {confidence:.1%}")
+        
+        # Check if expert is available
+        if expert is None:
+            logger.error(f"❌ Expert '{expert_name}' is not available")
+            raise ValueError(f"Expert '{expert_name}' is not yet implemented. Only 'email' expert is available.")
+        
+        logger.debug(f"   Expert object type: {type(expert).__name__}")
         
         # ✅ FIXED: Adjust parameters based on expert type
         if expert_name == "email":
             # ✅ Let email pipeline use its own optimized defaults (600, 0.5)
             # Don't override max_length or temperature!
             logger.info(f"📧 Email expert: using pipeline defaults (600, 0.5)")
+            logger.debug(f"   Ignoring passed max_length={max_length} and temperature={temperature}")
             
         elif expert_name == "story":
             # Stories can be longer and more creative
-            max_length = max(max_length, 200)
-            temperature = max(temperature, 0.8)
+            max_length = max(max_length, 200) if max_length else 200
+            temperature = max(temperature, 0.8) if temperature else 0.8
             logger.info(f"📖 Story expert: adjusted max_length={max_length}, temperature={temperature}")
             
         elif expert_name == "poem":
             # Poems are typically shorter but more creative
-            max_length = min(max_length, 200)
-            temperature = max(temperature, 0.9)
+            max_length = min(max_length, 200) if max_length else 200
+            temperature = max(temperature, 0.9) if temperature else 0.9
             logger.info(f"📝 Poem expert: adjusted max_length={max_length}, temperature={temperature}")
         
         # Generate text using the selected expert
         logger.info(f"🔄 Generating with {expert_name} expert...")
         
         try:
-            # ✅ FIXED: For email, don't pass parameters - use expert's defaults
+            # ✅ For email, enhance query first, then generate
             if expert_name == "email":
-                generated_text = expert.generate(prompt=prompt)
+                # Enhance query using QueryEnhancer (done at router level, not in email expert)
+                logger.debug("🔍 Enhancing query for email expert...")
+                enhanced_query = self.query_enhancer.enhance(prompt, expert_type="email")
+                logger.info(f"✅ Query enhanced for email expert")
+                logger.debug(f"   Enhanced query keys: {list(enhanced_query.keys()) if enhanced_query else 'None'}")
+                
+                # Generate with enhanced query (don't pass parameters - use expert's defaults)
+                logger.debug(f"📧 Calling email_expert.generate(prompt='{prompt[:50]}...', enhanced_query=...)")
+                generated_text = expert.generate(
+                    prompt=prompt,
+                    enhanced_query=enhanced_query
+                )
+                logger.debug(f"   Email expert returned: {len(generated_text)} chars")
             else:
                 # For other experts, pass adjusted parameters
+                logger.debug(f"📝 Calling {expert_name}_expert.generate(prompt='{prompt[:50]}...', max_length={max_length}, temperature={temperature})")
                 generated_text = expert.generate(
                     prompt=prompt,
                     max_length=max_length,
                     temperature=temperature
                 )
+                logger.debug(f"   {expert_name} expert returned: {len(generated_text)} chars")
             
-            logger.info(f"✅ Generation successful ({len(generated_text)} characters)")
+            logger.info(f"✅ Generation successful: {len(generated_text)} characters")
+            logger.debug(f"   Generated text preview: {generated_text[:100]}...")
             
         except Exception as e:
-            logger.error(f"❌ Generation failed: {e}")
+            logger.error(f"❌ Generation failed: {e}", exc_info=True)
             raise
         
         # Return results
-        return {
+        logger.info(f"📤 Returning results: expert={expert_name}, confidence={confidence:.1%}, text_length={len(generated_text)}")
+        result = {
             "generated_text": generated_text,
             "expert": expert_name,
             "confidence": float(confidence),
             "all_scores": self.calculate_expert_scores(prompt)
         }
+        logger.debug(f"   Result keys: {list(result.keys())}")
+        return result
     
     def get_expert_info(self) -> Dict:
         """Get information about available experts and their keywords."""
