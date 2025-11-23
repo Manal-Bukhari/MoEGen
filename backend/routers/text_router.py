@@ -1,28 +1,42 @@
 # routers/text_router.py
 from typing import Dict, Optional
 import logging
-from services.query_enhancer import QueryEnhancer
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class TextRouter:
     """
-    Router that analyzes input prompts and routes them to the appropriate expert.
-    Uses keyword matching to determine the best expert.
-    
-    ✅ FIXED: Email expert now uses pipeline defaults (600, 0.5) instead of forcing (300, 0.7)
+    Hybrid router that uses:
+    1. Fast keyword pre-filtering for obvious cases (90%+ confidence)
+    2. LLM-based routing for ambiguous cases
+
+    This approach is industry-standard and balances speed, cost, and accuracy.
     """
-    
+
     def __init__(self, story_expert, poem_expert, email_expert):
         self.experts = {
             "story": story_expert,
             "poem": poem_expert,
             "email": email_expert
         }
-        # Initialize QueryEnhancer for email requests
-        self.query_enhancer = QueryEnhancer()
-        
-        # ✅ Simple keyword lists
+
+        # Initialize LLM for routing (lazy load)
+        self._llm = None
+        self.use_llm_routing = True  # Can be disabled for pure keyword mode
+
+        # High-confidence keywords for fast routing (obvious cases)
+        self.high_confidence_keywords = {
+            "story": ["story", "tale", "narrative", "once upon", "chapter", "novel"],
+            "poem": ["poem", "poetry", "haiku", "sonnet", "verse", "stanza"],
+            "email": ["email", "mail", "dear", "sincerely", "regards"]
+        }
+
+        # ✅ Comprehensive keyword lists for scoring
         self.expert_keywords = {
             "story": [
                 # Core story words
@@ -89,8 +103,99 @@ class TextRouter:
             ]
         }
         
-        logger.info("TextRouter initialized with enhanced keyword matching")
-    
+        logger.info("✅ Hybrid TextRouter initialized (Keyword pre-filter + LLM routing)")
+
+    @property
+    def llm(self):
+        """Lazy load LLM for routing"""
+        if self._llm is None:
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                gemini_api_key = os.getenv("GEMINI_API_KEY")
+                if not gemini_api_key:
+                    logger.warning("⚠️ GEMINI_API_KEY not set - LLM routing disabled")
+                    self.use_llm_routing = False
+                    return None
+                self._llm = ChatGoogleGenerativeAI(
+                    model="gemini-2.5-flash",
+                    google_api_key=gemini_api_key,
+                    temperature=0
+                )
+                logger.info("✅ LLM router initialized with Gemini 2.5 Flash")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize LLM router: {e}")
+                self.use_llm_routing = False
+                return None
+        return self._llm
+
+    def fast_keyword_check(self, prompt: str) -> Optional[tuple]:
+        """
+        Fast pre-filter using high-confidence keywords.
+        Returns (expert_name, confidence) if match found, else None.
+        """
+        prompt_lower = prompt.lower()
+
+        for expert, keywords in self.high_confidence_keywords.items():
+            for keyword in keywords:
+                if keyword in prompt_lower:
+                    logger.info(f"⚡ Fast route: '{keyword}' → {expert.upper()} expert")
+                    return expert, 0.95  # High confidence
+
+        return None  # No obvious match, need deeper analysis
+
+    def llm_route(self, prompt: str) -> tuple:
+        """
+        Use LLM to intelligently route the prompt.
+        Returns (expert_name, confidence).
+        """
+        if not self.use_llm_routing or self.llm is None:
+            logger.warning("⚠️ LLM routing unavailable, falling back to keyword scoring")
+            return self._fallback_keyword_route(prompt)
+
+        try:
+            routing_prompt = f"""You are an expert routing system. Analyze the user's request and determine which expert should handle it.
+
+Available experts:
+- STORY: For creative narratives, tales, fiction, storytelling, adventures, fantasy, sci-fi
+- POEM: For poetry, verses, rhymes, haikus, sonnets, and all poetic compositions
+- EMAIL: For professional emails, formal letters, business communication, leave requests, HR messages
+
+User request: "{prompt}"
+
+Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL
+Do not include any explanation, just the expert name."""
+
+            response = self.llm.invoke(routing_prompt)
+            expert_name = response.content.strip().upper()
+
+            # Map to lowercase for consistency
+            expert_map = {"STORY": "story", "POEM": "poem", "EMAIL": "email"}
+            selected_expert = expert_map.get(expert_name)
+
+            if selected_expert and selected_expert in self.experts:
+                logger.info(f"🤖 LLM route: {selected_expert.upper()} expert")
+                return selected_expert, 0.90  # LLM confidence
+            else:
+                logger.warning(f"⚠️ LLM returned invalid expert: {expert_name}, using fallback")
+                return self._fallback_keyword_route(prompt)
+
+        except Exception as e:
+            logger.error(f"❌ LLM routing failed: {e}, using fallback")
+            return self._fallback_keyword_route(prompt)
+
+    def _fallback_keyword_route(self, prompt: str) -> tuple:
+        """Fallback to keyword scoring when LLM is unavailable"""
+        scores = self.calculate_expert_scores(prompt)
+        total_matches = sum(scores.values())
+
+        if total_matches == 0:
+            logger.warning("⚠️ No matches - defaulting to email")
+            return "email", 0.5
+
+        best_expert = max(scores, key=scores.get)
+        confidence = scores[best_expert] / total_matches
+        return best_expert, confidence
+
     def calculate_expert_scores(self, prompt: str) -> Dict[str, int]:
         """Calculate scores for each expert based on keyword matching."""
         prompt_lower = prompt.lower()
@@ -112,163 +217,127 @@ class TextRouter:
         return scores
     
     def select_expert(self, prompt: str, force_expert: Optional[str] = None) -> tuple:
-        """Select the best expert for the given prompt."""
-        logger.debug(f"🎯 TextRouter.select_expert() called")
-        logger.debug(f"   Prompt: {prompt[:100]}..., force_expert: {force_expert}")
-        
+        """
+        HYBRID ROUTING: Select the best expert using multi-stage approach.
+
+        Stage 1: Fast keyword pre-filter (obvious cases)
+        Stage 2: LLM-based routing (ambiguous cases)
+        Stage 3: Fallback keyword scoring
+
+        Returns: (expert_name, confidence, routing_method)
+        """
         # Handle forced expert selection
         if force_expert:
             logger.info(f"🔧 Force expert requested: {force_expert}")
             if force_expert in self.experts:
-                if self.experts[force_expert] is None:
-                    logger.error(f"❌ Expert '{force_expert}' is not implemented")
-                    raise ValueError(f"Expert '{force_expert}' is not yet implemented. Only 'email' expert is available.")
-                logger.info(f"✅ Forcing expert: {force_expert}")
-                return force_expert, 1.0
+                logger.info(f"✅ Manual override: {force_expert}")
+                return force_expert, 1.0, "manual"
             else:
                 logger.error(f"❌ Unknown expert: {force_expert}")
                 raise ValueError(f"Unknown expert: {force_expert}. Available: {list(self.experts.keys())}")
-        
-        # Calculate scores
-        logger.debug("📊 Calculating expert scores...")
-        scores = self.calculate_expert_scores(prompt)
-        total_matches = sum(scores.values())
-        logger.debug(f"   Total keyword matches: {total_matches}")
-        
-        # Handle no matches - default to email for professional requests
-        if total_matches == 0:
-            logger.warning("⚠️ No keyword matches found - defaulting to email expert")
-            if self.experts["email"] is None:
-                logger.error("❌ Email expert is not available")
-                raise ValueError("Email expert is not available. Cannot default to email expert.")
-            return "email", 0.5
-        
-        # Select expert with highest score
-        best_expert = max(scores, key=scores.get)
-        best_score = scores[best_expert]
-        
-        # Calculate confidence as percentage of total matches
-        confidence = best_score / total_matches
-        
-        logger.info(f"✅ Selected: {best_expert.upper()} expert")
-        logger.info(f"   Matches: {best_score}/{total_matches} keywords")
+
+        # Stage 1: Fast keyword pre-filter
+        fast_result = self.fast_keyword_check(prompt)
+        if fast_result:
+            expert_name, confidence = fast_result
+            logger.info(f"✅ Fast route selected: {expert_name.upper()} ({confidence:.0%} confidence)")
+            return expert_name, confidence, "keyword"
+
+        # Stage 2: LLM-based routing for ambiguous cases
+        logger.info("🤖 No obvious keywords, using LLM routing...")
+        expert_name, confidence = self.llm_route(prompt)
+        routing_method = "llm" if self.use_llm_routing and self.llm else "fallback"
+
+        logger.info(f"✅ Selected: {expert_name.upper()} expert ({routing_method})")
         logger.info(f"   Confidence: {confidence:.1%}")
-        
-        # Verify selected expert is available
-        if self.experts[best_expert] is None:
-            logger.error(f"❌ Selected expert '{best_expert}' is not implemented")
-            if best_expert != "email" and self.experts["email"] is not None:
-                logger.warning(f"⚠️ Falling back to email expert")
-                return "email", 0.5
-            raise ValueError(f"Expert '{best_expert}' is not yet implemented. Only 'email' expert is available.")
-        
-        return best_expert, confidence
+
+        return expert_name, confidence, routing_method
     
     def route_and_generate(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         max_length: int = None,
         temperature: float = None,
         force_expert: Optional[str] = None
     ) -> Dict:
         """
         Route the prompt to the appropriate expert and generate text.
-        
+
         Args:
             prompt: User input text
             max_length: Maximum generation length (ignored for email expert)
             temperature: Sampling temperature (ignored for email expert)
             force_expert: Force a specific expert (optional)
-            
+
         Returns:
             Dictionary containing:
             - generated_text: The generated output
             - expert: Name of expert used
             - confidence: Routing confidence score
-            - all_scores: Scores for all experts
+            - routing_method: How the routing was performed
+            - all_scores: Scores for all experts (for debugging)
         """
-        logger.info(f"🔄 TextRouter.route_and_generate() called")
-        logger.info(f"   Prompt: {prompt[:100]}...")
-        logger.debug(f"   max_length: {max_length}, temperature: {temperature}, force_expert: {force_expert}")
-        
-        # Select the best expert
-        logger.info("🎯 Selecting expert...")
-        expert_name, confidence = self.select_expert(prompt, force_expert)
+        # Select the best expert using hybrid routing
+        expert_name, confidence, routing_method = self.select_expert(prompt, force_expert)
         expert = self.experts[expert_name]
-        logger.info(f"   Selected expert: {expert_name}, Confidence: {confidence:.1%}")
-        
-        # Check if expert is available
-        if expert is None:
-            logger.error(f"❌ Expert '{expert_name}' is not available")
-            raise ValueError(f"Expert '{expert_name}' is not yet implemented. Only 'email' expert is available.")
-        
-        logger.debug(f"   Expert object type: {type(expert).__name__}")
-        
-        # ✅ FIXED: Adjust parameters based on expert type
-        if expert_name == "email":
-            # ✅ Let email pipeline use its own optimized defaults (600, 0.5)
-            # Don't override max_length or temperature!
-            logger.info(f"📧 Email expert: using pipeline defaults (600, 0.5)")
-            logger.debug(f"   Ignoring passed max_length={max_length} and temperature={temperature}")
-            
-        elif expert_name == "story":
-            # Stories can be longer and more creative
-            max_length = max(max_length, 200) if max_length else 200
-            temperature = max(temperature, 0.8) if temperature else 0.8
-            logger.info(f"📖 Story expert: adjusted max_length={max_length}, temperature={temperature}")
-            
-        elif expert_name == "poem":
-            # Poems are typically shorter but more creative
-            max_length = min(max_length, 200) if max_length else 200
-            temperature = max(temperature, 0.9) if temperature else 0.9
-            logger.info(f"📝 Poem expert: adjusted max_length={max_length}, temperature={temperature}")
-        
-        # Generate text using the selected expert
-        logger.info(f"🔄 Generating with {expert_name} expert...")
-        
-        try:
-            # ✅ For email, enhance query first, then generate
-            if expert_name == "email":
-                # Enhance query using QueryEnhancer (done at router level, not in email expert)
-                logger.debug("🔍 Enhancing query for email expert...")
-                enhanced_query = self.query_enhancer.enhance(prompt, expert_type="email")
-                logger.info(f"✅ Query enhanced for email expert")
-                logger.debug(f"   Enhanced query keys: {list(enhanced_query.keys()) if enhanced_query else 'None'}")
-                
-                # Generate with enhanced query (don't pass parameters - use expert's defaults)
-                logger.debug(f"📧 Calling email_expert.generate(prompt='{prompt[:50]}...', enhanced_query=...)")
-                generated_text = expert.generate(
-                    prompt=prompt,
-                    enhanced_query=enhanced_query
-                )
-                logger.debug(f"   Email expert returned: {len(generated_text)} chars")
-            else:
-                # For other experts, pass adjusted parameters
-                logger.debug(f"📝 Calling {expert_name}_expert.generate(prompt='{prompt[:50]}...', max_length={max_length}, temperature={temperature})")
-                generated_text = expert.generate(
-                    prompt=prompt,
-                    max_length=max_length,
-                    temperature=temperature
-                )
-                logger.debug(f"   {expert_name} expert returned: {len(generated_text)} chars")
-            
-            logger.info(f"✅ Generation successful: {len(generated_text)} characters")
-            logger.debug(f"   Generated text preview: {generated_text[:100]}...")
-            
-        except Exception as e:
-            logger.error(f"❌ Generation failed: {e}", exc_info=True)
-            raise
-        
-        # Return results
-        logger.info(f"📤 Returning results: expert={expert_name}, confidence={confidence:.1%}, text_length={len(generated_text)}")
-        result = {
-            "generated_text": generated_text,
+
+        # Calculate all scores for debugging
+        all_scores = self.calculate_expert_scores(prompt)
+
+        # ✅ TESTING MODE: Just return routing info instead of generating
+        logger.info(f"🎯 HYBRID ROUTING TEST MODE")
+        logger.info(f"📍 Selected Expert: {expert_name.upper()}")
+        logger.info(f"🔀 Routing Method: {routing_method}")
+        logger.info(f"📊 Confidence: {confidence:.1%}")
+
+        # Routing method emoji
+        method_emoji = {
+            "keyword": "⚡",
+            "llm": "🤖",
+            "fallback": "🔄",
+            "manual": "👤"
+        }
+
+        # Create a detailed test response
+        test_response = f"""
+🎯 HYBRID ROUTING DECISION
+==========================
+✅ Selected Expert: {expert_name.upper()}
+{method_emoji.get(routing_method, '🔀')} Routing Method: {routing_method.upper()}
+📊 Confidence Score: {confidence:.1%}
+
+📈 Keyword Match Analysis:
+- Story Expert: {all_scores.get('story', 0)} matches
+- Poem Expert: {all_scores.get('poem', 0)} matches
+- Email Expert: {all_scores.get('email', 0)} matches
+
+📝 Your Prompt: "{prompt}"
+
+💡 Routing Strategy Used:
+{self._get_routing_explanation(routing_method)}
+
+🔧 This is a TEST RESPONSE - agents are not yet implemented.
+Once agents are ready, this will be replaced with actual generation.
+"""
+
+        # Return test results
+        return {
+            "generated_text": test_response,
             "expert": expert_name,
             "confidence": float(confidence),
-            "all_scores": self.calculate_expert_scores(prompt)
+            "routing_method": routing_method,
+            "all_scores": all_scores
         }
-        logger.debug(f"   Result keys: {list(result.keys())}")
-        return result
+
+    def _get_routing_explanation(self, method: str) -> str:
+        """Get explanation for routing method used"""
+        explanations = {
+            "keyword": "⚡ Fast keyword pre-filter detected obvious match (e.g., 'poem', 'story', 'email')",
+            "llm": "🤖 LLM analyzed the prompt semantically for intelligent routing",
+            "fallback": "🔄 Keyword scoring used (LLM unavailable or no API key)",
+            "manual": "👤 User manually selected this expert"
+        }
+        return explanations.get(method, "Unknown routing method")
     
     def get_expert_info(self) -> Dict:
         """Get information about available experts and their keywords."""
