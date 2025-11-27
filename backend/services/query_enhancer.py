@@ -8,6 +8,7 @@ import re
 import json
 from typing import Dict, Any
 import google.generativeai as genai
+from utils.json_parser import parse_json_robust
 
 logger = logging.getLogger(__name__)
 
@@ -84,33 +85,27 @@ class QueryEnhancer:
             response = self.model.generate_content(enhancement_prompt)
             result_text = response.text.strip()
             
-            # Extract JSON from response
-            if "```json" in result_text:
-                result_text = result_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in result_text:
-                result_text = result_text.split("```")[1].split("```")[0].strip()
-            
-            # Clean JSON
-            result_text = ' '.join(result_text.split())
-            result_text = re.sub(r',(\s*[}\]])', r'\1', result_text)
-            result_text = result_text.replace("'", '"')
-            
-            if '{' in result_text and '}' in result_text:
-                start = result_text.find('{')
-                end = result_text.rfind('}') + 1
-                result_text = result_text[start:end]
-            
+            # Use robust JSON parser
+            logger.debug("🔧 Parsing JSON with robust parser...")
             try:
-                enhanced_data = json.loads(result_text)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON error: {e}")
-                logger.debug(f"Problematic JSON (first 300 chars): {result_text[:300]}")
+                enhanced_data = parse_json_robust(result_text)
+                logger.debug(f"   Successfully parsed JSON with keys: {list(enhanced_data.keys())}")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.error(f"❌ JSON parsing failed: {e}")
+                logger.debug(f"   Problematic JSON (first 500 chars): {result_text[:500]}")
                 raise
             
             enhanced_data['original_query'] = user_query
             enhanced_data['expert_type'] = expert_type or 'auto'
             
             logger.info(f"✅ Enhanced query for {enhanced_data.get('expert_type', 'unknown')} expert")
+            logger.debug(f"   Enhanced query structure:")
+            logger.debug(f"     - email_type: {enhanced_data.get('email_type', 'N/A')}")
+            logger.debug(f"     - tone: {enhanced_data.get('tone', 'N/A')}")
+            logger.debug(f"     - recipient_type: {enhanced_data.get('recipient_type', 'N/A')}")
+            logger.debug(f"     - key_points: {enhanced_data.get('key_points', [])}")
+            logger.debug(f"     - special_requirements: {enhanced_data.get('special_requirements', [])}")
+            logger.debug(f"     - enhanced_instruction: {enhanced_data.get('enhanced_instruction', 'N/A')[:100]}...")
             return enhanced_data
             
         except Exception as e:
