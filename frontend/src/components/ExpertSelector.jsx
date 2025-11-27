@@ -7,7 +7,25 @@ const expertIcons = {
   email: '📧'
 }
 
-function ExpertSelector({ experts, selectedExpert, onSelectExpert }) {
+function ExpertSelector({ experts = [], selectedExpert, onSelectExpert }) {  // ✅ Added default value
+  // ✅ Safety check: Return loading state if experts not loaded yet
+  if (!experts || experts.length === 0) {
+    return (
+      <div className="expert-selector">
+        <h3>Select Expert Mode:</h3>
+        <div className="expert-buttons">
+          <button
+            className={`expert-btn ${selectedExpert === 'auto' ? 'active' : ''}`}
+            onClick={() => onSelectExpert('auto')}
+          >
+            {expertIcons.auto} Auto (Router Decides)
+          </button>
+        </div>
+        <p className="expert-hint">Loading experts...</p>
+      </div>
+    )
+  }
+
   return (
     <div className="expert-selector">
       <h3>Select Expert Mode:</h3>
@@ -22,11 +40,13 @@ function ExpertSelector({ experts, selectedExpert, onSelectExpert }) {
         {experts.map((expert) => (
           <button
             key={expert.name}
-            className={`expert-btn ${selectedExpert === expert.name ? 'active' : ''}`}
+            className={`expert-btn ${selectedExpert === expert.name ? 'active' : ''} ${!expert.available ? 'disabled' : ''}`}
             onClick={() => onSelectExpert(expert.name)}
             title={expert.description}
+            disabled={!expert.available}
           >
             {expertIcons[expert.name] || '🤖'} {expert.name.charAt(0).toUpperCase() + expert.name.slice(1)}
+            {!expert.available && ' (Coming Soon)'}
           </button>
         ))}
       </div>

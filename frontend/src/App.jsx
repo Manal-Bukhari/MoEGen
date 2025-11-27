@@ -19,9 +19,23 @@ function App() {
     const fetchExperts = async () => {
       try {
         const data = await getExperts()
-        setExperts(data.experts)
+        console.log('Fetched experts data:', data)  // ✅ Debug log
+        
+        // ✅ FIX: Handle both response formats
+        if (Array.isArray(data)) {
+          // Backend returns array directly
+          setExperts(data)
+        } else if (data.experts && Array.isArray(data.experts)) {
+          // Backend returns object with experts key
+          setExperts(data.experts)
+        } else {
+          console.error('Unexpected experts format:', data)
+          setExperts([])
+        }
       } catch (err) {
         console.error('Error fetching experts:', err)
+        setError('Failed to load experts. Please ensure the backend is running.')
+        setExperts([])  // ✅ Set empty array on error
       }
     }
     fetchExperts()
@@ -54,6 +68,11 @@ function App() {
               Enter your prompt below and our AI will automatically select the best expert
               (Story, Poem, or Email) to generate your content. Or choose an expert manually!
             </p>
+            
+            {/* ✅ Show loading state for experts */}
+            {experts.length === 0 && !error && (
+              <p className="info-text">Loading experts...</p>
+            )}
           </div>
 
           <div className="generator-section">
