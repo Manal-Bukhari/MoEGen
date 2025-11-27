@@ -20,7 +20,7 @@ class ContextExtractor:
         if self.api_key:
             try:
                 genai.configure(api_key=self.api_key)
-                for model_name in ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro-latest"]:
+                for model_name in ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
                     try:
                         self.model = genai.GenerativeModel(model_name)
                         logger.info(f"✅ Context Extractor: {model_name}")

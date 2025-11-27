@@ -17,7 +17,7 @@ class CharacterGenerator:
         if self.api_key:
             try:
                 genai.configure(api_key=self.api_key)
-                for model_name in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
+                for model_name in ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro"]:
                     try:
                         self.model = genai.GenerativeModel(model_name)
                         logger.info(f"✅ Character Generator: {model_name}")
