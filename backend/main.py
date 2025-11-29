@@ -11,7 +11,7 @@ load_dotenv()
 
 # Import LangGraph agents
 # from experts.story_expert.agent import StoryExpertAgent
-# from experts.poem_expert.agent import PoemExpertAgent
+from experts.poem_expert.agent import PoemExpertAgent
 from experts.email_expert.agent import EmailExpertAgent
 from routers.text_router import TextRouter
 
@@ -41,13 +41,13 @@ if not gemini_api_key:
     logger.warning("⚠️ GEMINI_API_KEY not set.")
 
 # story_expert_agent = StoryExpertAgent()  # TODO: Implement when ready
-# poem_expert_agent = PoemExpertAgent()  # TODO: Implement when ready
+poem_expert_agent = PoemExpertAgent()  # TODO: Implement when ready
 email_expert_agent = EmailExpertAgent()
 
 # Initialize router
 text_router = TextRouter(
     story_expert=None,  # TODO: Replace with story_expert_agent when ready
-    poem_expert=None,  # TODO: Replace with poem_expert_agent when ready
+    poem_expert=poem_expert_agent,  # TODO: Replace with poem_expert_agent when ready
     email_expert=email_expert_agent
 )
 
@@ -169,12 +169,12 @@ async def generate_with_expert(expert_name: str, request: GenerationRequest):
         if expert_name not in ["story", "poem", "email"]:
             raise HTTPException(status_code=404, detail=f"Expert '{expert_name}' not found")
         
-        # Only email expert is implemented
-        if expert_name != "email":
+        # Only email and poem expert is implemented
+        if expert_name not in ["email", "poem"]:
             raise HTTPException(
-                status_code=503,
-                detail=f"Expert '{expert_name}' is not yet implemented. Only 'email' expert is available."
-            )
+            status_code=503,
+            detail=f"Expert '{expert_name}' not yet implemented. Available: email, poem"
+        )
         
         logger.info(f"📥 Received forced generation request for {expert_name} expert")
         logger.info(f"   Prompt: {request.prompt[:100]}...")

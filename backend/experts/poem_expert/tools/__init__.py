@@ -8,3 +8,13 @@ Placeholder for poetry generation tools.
 # - rhyme_checker: Check rhyme and rhythm
 # - meter_validator: Validate poetic meter
 
+"""
+Poem Expert Tools
+"""
+from .contextExtractor import ContextExtractor
+from .poemEvaluator import PoemEvaluator
+
+__all__ = [
+    "ContextExtractor",
+    "PoemEvaluator"
+]
