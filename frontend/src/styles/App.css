@@ -734,7 +734,7 @@
 .footer {
   background: var(--bg-primary);
   border-top: 1px solid var(--border-color);
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
   margin-top: auto;
 }
 
@@ -751,7 +751,7 @@
   gap: var(--spacing-sm);
   font-size: 0.875rem;
   color: var(--text-secondary);
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
 }
 
 .footer-icon {
