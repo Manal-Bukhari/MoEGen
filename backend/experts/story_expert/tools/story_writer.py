@@ -14,6 +14,10 @@ class StoryWriter:
     
     def format_story(self, story_text: str) -> str:
         """Format story text for output."""
+        
+        # Remove asterisks used for Markdown bold/italics (e.g., *feeling* -> feeling)
+        story_text = story_text.replace("*", "")
+
         # Remove excessive whitespace
         story_text = "\n".join(line.strip() for line in story_text.split("\n"))
         

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Gemini API Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("STORY_EXPERT_MODEL", "gemini-1.5-flash")  # ✅ FIXED
+GEMINI_MODEL = os.getenv("STORY_EXPERT_MODEL", "gemini-2.5-flash")  # ✅ FIXED
 
 # Generation Parameters
 MAX_TOKENS = int(os.getenv("STORY_MAX_TOKENS", "4000"))
