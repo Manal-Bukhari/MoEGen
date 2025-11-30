@@ -548,7 +548,7 @@
   bottom: 0;
   background: var(--bg-primary);
   border-top: 1px solid var(--border-color);
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
   z-index: 10;
 }
 
@@ -559,9 +559,9 @@
 
 .chat-input-wrapper {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
@@ -592,7 +592,9 @@
   max-height: 200px;
   overflow-y: auto;
   outline: none;
-  line-height: 1.6;
+  line-height: 1.5;
+  padding: 0;
+  margin: 0;
 }
 
 .chat-input::placeholder {
