@@ -9,7 +9,7 @@ const expertIcons = {
   email: Mail
 }
 
-function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
+function TextGenerator({ selectedExpert, onUserMessage, onGenerate, onError, loading }) {
   const [prompt, setPrompt] = useState('')
   const [showExamples, setShowExamples] = useState(false)
   const textareaRef = useRef(null)
@@ -24,23 +24,27 @@ function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    if (!prompt.trim()) {
-      onError('Please enter a prompt')
+    if (!prompt.trim() || loading) {
       return
     }
 
-    setLoading(true)
+    const userPrompt = prompt.trim()
+    
+    // Clear input immediately
+    setPrompt('')
+    
+    // Notify parent to add user message immediately
+    onUserMessage(userPrompt)
+    
+    // Make API call
     try {
       const result = await generateText(
-        prompt,
+        userPrompt,
         selectedExpert
       )
       onGenerate(result)
-      setPrompt('')
     } catch (err) {
       onError(err.toString())
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -124,6 +128,7 @@ function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
             onKeyDown={handleKeyDown}
             placeholder="Type your message here... (Press Enter to send, Shift+Enter for new line)"
             rows={1}
+            disabled={loading}
           />
           <div className="chat-input-actions">
             <button
@@ -137,7 +142,7 @@ function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
             <button 
               type="submit" 
               className="send-button"
-              disabled={!prompt.trim()}
+              disabled={!prompt.trim() || loading}
               title="Send message"
             >
               <Send size={20} />

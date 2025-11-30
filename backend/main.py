@@ -54,16 +54,20 @@ logger.info("🚀 Initializing expert agents...")
 
 try:
     logger.info("   Initializing Story Expert...")
-    story_expert_agent = StoryExpertAgent()  # ✅ INITIALIZED
+    story_expert_agent = StoryExpertAgent()
     logger.info("   ✅ Story Expert initialized")
 except Exception as e:
     logger.error(f"   ❌ Story Expert initialization failed: {e}")
     story_expert_agent = None
 
+try:
+    logger.info("   Initializing Poem Expert...")
+    poem_expert_agent = PoemExpertAgent()
+    logger.info("   ✅ Poem Expert initialized")
+except Exception as e:
+    logger.error(f"   ❌ Poem Expert initialization failed: {e}")
+    poem_expert_agent = None
 
-story_expert_agent = StoryExpertAgent()  # TODO: Implement when ready
-poem_expert_agent = PoemExpertAgent()  # TODO: Implement when ready
-email_expert_agent = EmailExpertAgent()
 try:
     logger.info("   Initializing Email Expert...")
     email_expert_agent = EmailExpertAgent()

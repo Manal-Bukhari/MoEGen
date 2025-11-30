@@ -43,13 +43,20 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleGenerate = (result) => {
+  const handleUserMessage = (userPrompt) => {
+    // Add user message immediately
     const userMessage = {
       type: 'user',
-      content: result.prompt,
+      content: userPrompt,
       timestamp: new Date()
     }
-    
+    setMessages(prev => [...prev, userMessage])
+    setError(null)
+    setLoading(true)
+  }
+
+  const handleGenerate = (result) => {
+    // Add AI response when it arrives
     const aiMessage = {
       type: 'ai',
       content: result.generated_text,
@@ -57,12 +64,14 @@ function App() {
       timestamp: new Date()
     }
 
-    setMessages(prev => [...prev, userMessage, aiMessage])
+    setMessages(prev => [...prev, aiMessage])
     setError(null)
+    setLoading(false)
   }
 
   const handleError = (err) => {
     setError(err)
+    setLoading(false)
     const errorMessage = {
       type: 'error',
       content: err,
@@ -138,9 +147,10 @@ function App() {
 
             <TextGenerator 
               selectedExpert={selectedExpert}
+              onUserMessage={handleUserMessage}
               onGenerate={handleGenerate}
               onError={handleError}
-              setLoading={setLoading}
+              loading={loading}
             />
           </div>
         </main>
