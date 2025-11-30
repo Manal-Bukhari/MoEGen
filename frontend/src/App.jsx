@@ -106,7 +106,7 @@ function App() {
                   <div className="welcome-icon">
                     <img src="/logo.png" alt="MoE Generator Logo" className="welcome-logo" />
                   </div>
-                  <h1>Mixture-of-Experts AI</h1>
+                  <h1>Trivium AI</h1>
                   <p>Select an expert mode and start a conversation to generate content</p>
                   <div className="expert-badges">
                     <span className="expert-badge-item">Story</span>

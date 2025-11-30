@@ -16,7 +16,7 @@ function Header({ sidebarOpen, setSidebarOpen }) {
         <div className="header-title">
           <img src="/logo.png" alt="MoE Generator Logo" className="header-logo" />
           <div>
-            <h1 className="logo">MoE Generator</h1>
+            <h1 className="logo">Trivium AI</h1>
             <p className="tagline">Mixture-of-Experts AI System</p>
           </div>
         </div>
