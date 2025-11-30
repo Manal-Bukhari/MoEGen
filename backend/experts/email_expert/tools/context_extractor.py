@@ -1,13 +1,11 @@
 """
 Context Extractor - Intelligently extracts user intent and key information from prompts
 """
-import os
 import logging
 import json
 import re
 from typing import Dict, Any, List
-import google.generativeai as genai
-from utils.json_parser import parse_json_robust
+from .base_tool import init_gemini_model, parse_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -15,29 +13,21 @@ logger = logging.getLogger(__name__)
 class ContextExtractor:
     """Extracts context, intent, and key entities from user prompts intelligently."""
     
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+    def __init__(self, api_key: str):
+        """
+        Initialize ContextExtractor.
         
-        if self.api_key:
-            try:
-                genai.configure(api_key=self.api_key)
-                # Try multiple models for compatibility
-                for model_name in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
-                    try:
-                        self.model = genai.GenerativeModel(model_name)
-                        logger.info(f"✅ Context Extractor: {model_name}")
-                        self.enabled = True
-                        break
-                    except:
-                        continue
-                if not hasattr(self, 'model'):
-                    raise Exception("No Gemini models available")
-            except Exception as e:
-                logger.warning(f"⚠️ Context Extractor disabled: {e}")
-                self.enabled = False
-        else:
-            logger.warning("⚠️ No GEMINI_API_KEY. Context Extractor disabled.")
-            self.enabled = False
+        Args:
+            api_key: Gemini API key (required)
+        """
+        self.api_key = api_key
+        
+        # Initialize model using shared utility
+        self.model = init_gemini_model(self.api_key)
+        self.enabled = self.model is not None
+        
+        if not self.enabled:
+            logger.warning("Context Extractor disabled: model initialization failed")
     
     def extract(self, prompt: str, enhanced_query: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -54,38 +44,27 @@ class ContextExtractor:
             - key_entities: Extracted entities (dates, recipients, reasons, etc.)
             - relationships: Relationships between entities
         """
-        logger.info(f"🔍 ContextExtractor.extract() called with prompt length: {len(prompt)}")
-        if enhanced_query:
-            logger.debug(f"   Enhanced query provided: {list(enhanced_query.keys())}")
+        logger.debug(f"ContextExtractor.extract() called with prompt length: {len(prompt)}")
         
         if not self.enabled:
-            logger.warning("⚠️ ContextExtractor disabled, using fallback extraction")
+            logger.warning("ContextExtractor disabled, using fallback extraction")
             return self._fallback_extract(prompt, enhanced_query)
         
         # Build extraction prompt
-        logger.debug("📝 Building extraction prompt...")
         extraction_prompt = self._create_extraction_prompt(prompt, enhanced_query)
-        logger.debug(f"   Extraction prompt length: {len(extraction_prompt)} chars")
         
         try:
-            logger.info("🤖 Calling Gemini API for context extraction...")
+            logger.info("Calling Gemini API for context extraction...")
             response = self.model.generate_content(extraction_prompt)
             result_text = response.text.strip()
-            logger.debug(f"   Raw response length: {len(result_text)} chars")
             
-            # Use robust JSON parser
-            logger.debug("🔧 Parsing JSON with robust parser...")
-            try:
-                extracted_data = parse_json_robust(result_text)
-                logger.debug(f"   Successfully parsed JSON with keys: {list(extracted_data.keys())}")
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.error(f"❌ JSON parse error: {e}")
-                logger.debug(f"   Problematic JSON (first 500 chars): {result_text[:500]}")
-                logger.warning("⚠️ Falling back to fallback extraction")
+            # Use shared JSON parser utility
+            extracted_data = parse_json_response(result_text, "context extraction")
+            if not extracted_data:
+                logger.warning("Falling back to fallback extraction")
                 return self._fallback_extract(prompt, enhanced_query)
             
             # Ensure all required fields exist
-            logger.debug("🔍 Validating extracted data structure...")
             result = {
                 "extracted_context": extracted_data.get("extracted_context", ""),
                 "intent": extracted_data.get("intent", "general"),
@@ -96,18 +75,12 @@ class ContextExtractor:
                 "formality_level": extracted_data.get("formality_level", "professional")
             }
             
-            logger.info(f"✅ Context extracted successfully:")
-            logger.info(f"   Intent: {result['intent']}")
-            logger.info(f"   Email Type: {result['email_type']}")
-            logger.info(f"   Urgency: {result['urgency']}")
-            logger.info(f"   Formality: {result['formality_level']}")
-            logger.debug(f"   Key entities: {list(result['key_entities'].keys())}")
-            logger.debug(f"   Relationships count: {len(result['relationships'])}")
+            logger.info(f"Context extracted: intent={result['intent']}, email_type={result['email_type']}, urgency={result['urgency']}")
             return result
             
         except Exception as e:
-            logger.error(f"❌ Context extraction failed: {e}", exc_info=True)
-            logger.warning("⚠️ Falling back to fallback extraction")
+            logger.error(f"Context extraction failed: {e}", exc_info=True)
+            logger.warning("Falling back to fallback extraction")
             return self._fallback_extract(prompt, enhanced_query)
     
     def _create_extraction_prompt(self, prompt: str, enhanced_query: Dict[str, Any] = None) -> str:
@@ -151,72 +124,37 @@ Extract and return ONLY valid JSON with:
 Be thorough and extract all relevant information."""
     
     def _fallback_extract(self, prompt: str, enhanced_query: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Fallback extraction when LLM is not available."""
-        logger.info("🔄 Using fallback context extraction")
-        logger.debug(f"   Prompt: {prompt[:100]}...")
+        """Fallback extraction when LLM is not available - uses basic pattern matching."""
+        logger.info("Using fallback context extraction")
         
-        prompt_lower = prompt.lower()
-        
-        # Extract dates
-        logger.debug("📅 Extracting dates from prompt...")
+        # Extract dates using regex
         dates = re.findall(r'\b(\d{1,2}[-–]\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{0,4}|\d{4}-\d{2}-\d{2})\b', prompt, re.IGNORECASE)
-        if dates:
-            logger.debug(f"   Found dates: {dates}")
         
-        # Determine intent
-        logger.debug("🎯 Determining intent from prompt keywords...")
-        intent = "general"
-        email_type = "general"
-        if any(word in prompt_lower for word in ["sick", "ill", "unwell", "medical"]):
-            intent = "sick_leave"
-            email_type = "sick_leave"
-        elif any(word in prompt_lower for word in ["vacation", "holiday", "time off", "leave"]):
-            intent = "vacation"
-            email_type = "vacation"
-        elif any(word in prompt_lower for word in ["meeting", "schedule", "appointment"]):
-            intent = "meeting"
-            email_type = "meeting"
-        elif any(word in prompt_lower for word in ["thank", "appreciate", "grateful"]):
-            intent = "thank_you"
-            email_type = "thank_you"
-        
-        # Extract recipient
-        recipient = "general"
-        if "hr" in prompt_lower or "human resource" in prompt_lower:
-            recipient = "HR"
-        elif "manager" in prompt_lower or "supervisor" in prompt_lower:
-            recipient = "manager"
-        elif "client" in prompt_lower:
-            recipient = "client"
-        
-        # Extract reason
-        reason = ""
-        if "unwell" in prompt_lower or "sick" in prompt_lower:
-            reason = "illness"
-        elif "vacation" in prompt_lower:
-            reason = "vacation"
-        
-        # Use enhanced_query if available
+        # Use enhanced_query if available, otherwise use generic defaults
         if enhanced_query:
-            logger.debug("📝 Using enhanced_query to override values...")
-            email_type = enhanced_query.get('email_type', email_type)
-            recipient = enhanced_query.get('recipient_type', recipient)
+            email_type = enhanced_query.get('email_type', 'general')
+            recipient = enhanced_query.get('recipient_type', 'general')
+            intent = email_type
+        else:
+            email_type = "general"
+            recipient = "general"
+            intent = "general"
         
-        logger.info(f"✅ Fallback extraction complete: intent={intent}, email_type={email_type}, recipient={recipient}")
+        logger.info(f"Fallback extraction complete: intent={intent}, email_type={email_type}, recipient={recipient}")
         return {
-            "extracted_context": f"User wants to write a {email_type} email. {prompt}",
+            "extracted_context": f"User wants to write an email. {prompt}",
             "intent": intent,
             "key_entities": {
                 "dates": dates,
                 "recipient": recipient,
                 "sender": None,
-                "reason": reason,
+                "reason": None,
                 "duration": None,
-                "documentation": "medical documentation" if intent == "sick_leave" else None,
+                "documentation": None,
                 "deadline": None
             },
             "relationships": [
-                f"{intent} email to {recipient}",
+                f"email to {recipient}",
                 f"dates: {', '.join(dates)}" if dates else "no specific dates"
             ],
             "email_type": email_type,

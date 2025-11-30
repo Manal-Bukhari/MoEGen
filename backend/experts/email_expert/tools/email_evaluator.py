@@ -2,14 +2,16 @@
 Email Evaluator - Enhanced with strict validation and programmatic checks
 """
 
-import os
 import logging
 import json
 import re
-from typing import Dict, Any, Tuple, List
-from datetime import datetime
-import google.generativeai as genai
-from utils.json_parser import parse_json_robust
+from typing import Dict, Any, List
+from .base_tool import init_gemini_model, parse_json_response
+from ..config import (
+    EVALUATOR_PENALTY_PER_ISSUE, EVALUATOR_MAX_PENALTY,
+    EVALUATOR_CRITICAL_ISSUE_SCORE_CAP, EVALUATOR_DEFAULT_SCORE,
+    EVALUATOR_MAX_CRITICAL_ERRORS_DISPLAY
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,32 +19,26 @@ logger = logging.getLogger(__name__)
 class EmailEvaluator:
     """Evaluates emails using hybrid approach: programmatic checks + LLM evaluation."""
     
-    def __init__(self, api_key: str = None, threshold: float = None, max_retries: int = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self.threshold = threshold if threshold is not None else float(os.getenv("EVALUATOR_THRESHOLD", "7.0"))
-        self.max_retries = max_retries if max_retries is not None else int(os.getenv("EVALUATOR_MAX_RETRIES", "2"))
+    def __init__(self, api_key: str, threshold: float, max_retries: int, evaluator_model: str = None):
+        """
+        Initialize EmailEvaluator.
         
-        # Get model name from environment
-        evaluator_model = os.getenv("EVALUATOR_MODEL", "gemini-2.5-flash")
+        Args:
+            api_key: Gemini API key (required)
+            threshold: Evaluation threshold score (required)
+            max_retries: Maximum retry attempts (required)
+            evaluator_model: Preferred model name (optional)
+        """
+        self.api_key = api_key
+        self.threshold = threshold
+        self.max_retries = max_retries
         
-        if self.api_key:
-            try:
-                genai.configure(api_key=self.api_key)
-                # Try environment-specified model first, then fallback
-                for model_name in [evaluator_model, "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
-                    try:
-                        self.model = genai.GenerativeModel(model_name)
-                        logger.info(f"✅ Evaluator: {model_name}")
-                        self.enabled = True
-                        break
-                    except:
-                        continue
-            except Exception as e:
-                logger.warning(f"⚠️ Evaluator disabled: {e}")
-                self.enabled = False
-        else:
-            logger.warning("⚠️ No GEMINI_API_KEY. Evaluator disabled.")
-            self.enabled = False
+        # Initialize model using shared utility
+        self.model = init_gemini_model(self.api_key, evaluator_model)
+        self.enabled = self.model is not None
+        
+        if not self.enabled:
+            logger.warning("Evaluator disabled: model initialization failed")
     
     def extract_dates_from_text(self, text: str) -> List[str]:
         """Extract dates from text in various formats."""
@@ -63,25 +59,44 @@ class EmailEvaluator:
         return dates
     
     def check_recipient_match(self, prompt: str, email: str) -> Dict[str, Any]:
-        """Check if recipient in email matches the prompt."""
-        prompt_lower = prompt.lower()
-        email_lower = email.lower()
-        
+        """Check if recipient in email matches the prompt using LLM-based analysis."""
         issues = []
         
-        # Check for HR mention
-        if 'hr' in prompt_lower or 'human resource' in prompt_lower:
-            if 'mr.' in email_lower or 'mrs.' in email_lower or 'ms.' in email_lower:
-                # Check if it's a specific name after Mr/Mrs
-                if re.search(r'mr\.|mrs\.|ms\..*?smith|jones|brown|taylor', email_lower):
-                    issues.append("Email addressed to specific person (Mr./Mrs. Smith) instead of HR")
-            if 'hr' not in email_lower and 'human resource' not in email_lower:
-                issues.append("Prompt mentions HR but email doesn't address HR team")
-        
-        # Check for manager mention
-        if 'manager' in prompt_lower:
-            if 'manager' not in email_lower and 'supervisor' not in email_lower:
-                issues.append("Prompt mentions manager but email doesn't address manager")
+        # Use LLM to check recipient match dynamically
+        if self.enabled:
+            try:
+                check_prompt = f"""Analyze if the recipient in the email matches what was requested in the prompt.
+
+PROMPT: {prompt}
+
+GENERATED EMAIL: {email}
+
+Check if:
+1. The recipient mentioned in the prompt matches the recipient addressed in the email
+2. If prompt mentions a group (like HR, team, department), email should address that group, not a specific person
+3. If prompt mentions a specific person, email should address that person
+
+Return ONLY valid JSON:
+{{
+    "recipient_match": true/false,
+    "issues": ["list any recipient mismatches found"],
+    "prompt_recipient": "recipient mentioned in prompt",
+    "email_recipient": "recipient addressed in email"
+}}"""
+                
+                response = self.model.generate_content(check_prompt)
+                result_text = response.text.strip()
+                check_result = parse_json_response(result_text, "recipient check")
+                
+                if check_result:
+                    if not check_result.get("recipient_match", True):
+                        issues.extend(check_result.get("issues", []))
+            except Exception as e:
+                logger.debug(f"LLM recipient check failed: {e}, using basic check")
+                # Fallback to basic check
+                if "hr" in prompt.lower() or "human resource" in prompt.lower():
+                    if "hr" not in email.lower() and "human resource" not in email.lower():
+                        issues.append("Prompt mentions HR but email doesn't address HR")
         
         return {
             "passed": len(issues) == 0,
@@ -96,8 +111,8 @@ class EmailEvaluator:
         issues = []
         
         if prompt_dates:
-            logger.info(f"📅 Prompt dates: {prompt_dates}")
-            logger.info(f"📅 Email dates: {email_dates}")
+            logger.debug(f"Prompt dates: {prompt_dates}")
+            logger.debug(f"Email dates: {email_dates}")
             
             # Check if email has dates
             if not email_dates:
@@ -147,32 +162,41 @@ class EmailEvaluator:
         return False
     
     def check_context_match(self, prompt: str, email: str) -> Dict[str, Any]:
-        """Check if email context matches the prompt intent."""
-        prompt_lower = prompt.lower()
-        email_lower = email.lower()
-        
+        """Check if email context matches the prompt intent using LLM-based analysis."""
         issues = []
         
-        # Sick leave specific checks
-        if 'sick' in prompt_lower or 'leave' in prompt_lower or 'unwell' in prompt_lower:
-            if 'taken sick leave' in email_lower:
-                issues.append("Email says 'taken sick leave' (past tense) instead of requesting future leave")
-            
-            if 'interested in this position' in email_lower or 'fill in for me' in email_lower:
-                issues.append("Email sounds like job posting/availability notice, not a sick leave request")
-            
-            if 'employer is' in email_lower or 'looking for someone' in email_lower:
-                issues.append("Email mentions employer looking for replacement - wrong context for leave request")
-            
-            # Should mention being unwell if prompt mentions it
-            if 'unwell' in prompt_lower or 'sick' in prompt_lower:
-                if 'unwell' not in email_lower and 'sick' not in email_lower and 'ill' not in email_lower:
-                    issues.append("Prompt mentions being unwell but email doesn't mention illness")
-        
-        # Check for tense consistency
-        if 'request' in prompt_lower or 'requesting' in prompt_lower:
-            if re.search(r'\b(have taken|took|had taken)\b', email_lower):
-                issues.append("Email uses past tense instead of requesting future leave")
+        # Use LLM to check context match dynamically
+        if self.enabled:
+            try:
+                check_prompt = f"""Analyze if the email context and intent match what was requested in the prompt.
+
+PROMPT: {prompt}
+
+GENERATED EMAIL: {email}
+
+Check for:
+1. Tense consistency - if prompt requests future action, email should use future/present tense, not past tense
+2. Context match - if prompt is about requesting leave, email should request leave, not say it was already taken
+3. Intent match - email should match the intent (request, inquiry, thank you, etc.) mentioned in prompt
+4. Content relevance - email content should be relevant to what was requested
+
+Return ONLY valid JSON:
+{{
+    "context_match": true/false,
+    "issues": ["list any context/tense/intent mismatches found"],
+    "prompt_intent": "intent detected in prompt",
+    "email_intent": "intent detected in email"
+}}"""
+                
+                response = self.model.generate_content(check_prompt)
+                result_text = response.text.strip()
+                check_result = parse_json_response(result_text, "context check")
+                
+                if check_result:
+                    if not check_result.get("context_match", True):
+                        issues.extend(check_result.get("issues", []))
+            except Exception as e:
+                logger.debug(f"LLM context check failed: {e}, skipping context check")
         
         return {
             "passed": len(issues) == 0,
@@ -181,40 +205,30 @@ class EmailEvaluator:
     
     def programmatic_checks(self, prompt: str, email: str) -> Dict[str, Any]:
         """Run all programmatic checks before LLM evaluation."""
-        logger.info("🔍 EmailEvaluator.programmatic_checks() called")
-        logger.debug(f"   Prompt length: {len(prompt)} chars, Email length: {len(email)} chars")
+        logger.debug(f"Running programmatic checks: prompt={len(prompt)} chars, email={len(email)} chars")
         all_issues = []
         
         # Recipient check
-        logger.debug("👤 Checking recipient match...")
         recipient_check = self.check_recipient_match(prompt, email)
         if not recipient_check["passed"]:
-            logger.warning(f"   Recipient check failed: {recipient_check['issues']}")
+            logger.warning(f"Recipient check failed: {recipient_check['issues']}")
             all_issues.extend(recipient_check["issues"])
-        else:
-            logger.debug("   ✅ Recipient check passed")
         
         # Date check
-        logger.debug("📅 Checking date match...")
         date_check = self.check_date_match(prompt, email)
         if not date_check["passed"]:
-            logger.warning(f"   Date check failed: {date_check['issues']}")
+            logger.warning(f"Date check failed: {date_check['issues']}")
             all_issues.extend(date_check["issues"])
-        else:
-            logger.debug("   ✅ Date check passed")
         
         # Context check
-        logger.debug("📝 Checking context match...")
         context_check = self.check_context_match(prompt, email)
         if not context_check["passed"]:
-            logger.warning(f"   Context check failed: {context_check['issues']}")
+            logger.warning(f"Context check failed: {context_check['issues']}")
             all_issues.extend(context_check["issues"])
-        else:
-            logger.debug("   ✅ Context check passed")
         
         # Calculate penalty score
-        penalty = min(len(all_issues) * 2.5, 8.0)  # Each issue = -2.5 points, max -8
-        logger.info(f"📊 Programmatic checks complete: {len(all_issues)} issues found, penalty: {penalty:.1f}")
+        penalty = min(len(all_issues) * EVALUATOR_PENALTY_PER_ISSUE, EVALUATOR_MAX_PENALTY)
+        logger.info(f"Programmatic checks complete: {len(all_issues)} issues found, penalty: {penalty:.1f}")
         
         return {
             "passed": len(all_issues) == 0,
@@ -233,27 +247,22 @@ class EmailEvaluator:
         - feedback (str)
         - criteria_scores (dict)
         """
-        logger.info("📊 EmailEvaluator.evaluate() called")
-        logger.debug(f"   Prompt: {prompt[:100]}...")
-        logger.debug(f"   Email length: {len(generated_email)} chars")
+        logger.info("EmailEvaluator.evaluate() called")
+        logger.debug(f"Prompt: {prompt[:100]}..., Email length: {len(generated_email)} chars")
         
         if not self.enabled:
-            logger.warning("⚠️ Evaluator disabled, returning default pass")
-            return {"score": 10.0, "passed": True, "feedback": "Evaluator disabled"}
+            logger.warning("Evaluator disabled, returning default pass")
+            return {"score": EVALUATOR_DEFAULT_SCORE, "passed": True, "feedback": "Evaluator disabled"}
         
         # First run programmatic checks
-        logger.info("🔍 Running programmatic checks...")
         prog_checks = self.programmatic_checks(prompt, generated_email)
         
         if not prog_checks["passed"]:
-            logger.warning(f"❌ Programmatic checks failed:")
+            logger.warning("Programmatic checks failed:")
             for issue in prog_checks["issues"]:
-                logger.warning(f"   - {issue}")
-        else:
-            logger.info("✅ All programmatic checks passed")
+                logger.warning(f"  - {issue}")
         
         # Enhanced LLM evaluation prompt
-        logger.info("🤖 Building LLM evaluation prompt...")
         eval_prompt = f"""You are a STRICT email evaluator. Evaluate this email against the user's request.
 
 USER'S REQUEST: {prompt}
@@ -314,52 +323,41 @@ Return ONLY this JSON structure (no markdown, no backticks):
 }}
 
 BE STRICT. If dates don't match, score must be low."""
-        logger.debug(f"   Evaluation prompt length: {len(eval_prompt)} chars")
+        logger.debug(f"Evaluation prompt length: {len(eval_prompt)} chars")
 
         try:
-            logger.info("🤖 Calling Gemini API for LLM evaluation...")
+            logger.info("Calling Gemini API for LLM evaluation...")
             response = self.model.generate_content(eval_prompt)
             result = response.text.strip()
-            logger.debug(f"   Raw response length: {len(result)} chars")
+            logger.debug(f"Raw response length: {len(result)} chars")
             
-            # Use robust JSON parser
-            logger.debug("🔧 Parsing JSON with robust parser...")
-            try:
-                evaluation = parse_json_robust(result)
-                logger.debug(f"   Successfully parsed evaluation JSON with keys: {list(evaluation.keys())}")
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.error(f"❌ JSON parse error: {e}")
-                logger.debug(f"   Problematic JSON (first 500 chars): {result[:500]}")
-                raise
+            # Use shared JSON parser utility
+            evaluation = parse_json_response(result, "evaluation")
+            if not evaluation:
+                raise ValueError("Failed to parse evaluation JSON")
             
             llm_score = evaluation.get("overall_score", 0)
-            logger.debug(f"   LLM overall score: {llm_score:.1f}")
+            logger.debug(f"LLM overall score: {llm_score:.1f}")
             
             # Apply programmatic penalty
-            logger.debug(f"📉 Applying penalty: {prog_checks['penalty']:.1f}")
             final_score = max(0, llm_score - prog_checks["penalty"])
-            logger.debug(f"   Score after penalty: {final_score:.1f}")
+            logger.debug(f"Score after penalty: {final_score:.1f}")
             
-            # If programmatic checks found critical issues, cap score at 5.0
+            # If programmatic checks found critical issues, cap score
             if prog_checks["num_critical_issues"] > 0:
-                logger.warning(f"   ⚠️ Critical issues found, capping score at 5.0")
-                final_score = min(final_score, 5.0)
+                logger.warning(f"Critical issues found, capping score at {EVALUATOR_CRITICAL_ISSUE_SCORE_CAP}")
+                final_score = min(final_score, EVALUATOR_CRITICAL_ISSUE_SCORE_CAP)
             
             passed = final_score >= self.threshold
-            logger.debug(f"   Threshold: {self.threshold}, Passed: {passed}")
             
             # Combine feedback
             combined_feedback = evaluation.get("feedback", "")
             if prog_checks["issues"]:
                 combined_feedback = "CRITICAL ISSUES: " + "; ".join(prog_checks["issues"]) + ". " + combined_feedback
             
-            logger.info(f"✅ Evaluation complete:")
-            logger.info(f"   LLM Score: {llm_score:.1f}")
-            logger.info(f"   Penalty: {prog_checks['penalty']:.1f}")
-            logger.info(f"   Final Score: {final_score:.1f}")
-            logger.info(f"   Threshold: {self.threshold}, Passed: {passed}")
+            logger.info(f"Evaluation complete: LLM Score={llm_score:.1f}, Penalty={prog_checks['penalty']:.1f}, Final Score={final_score:.1f}, Passed={passed}")
             if evaluation.get("critical_errors"):
-                logger.warning(f"   Critical errors: {evaluation['critical_errors']}")
+                logger.warning(f"Critical errors: {evaluation['critical_errors']}")
             
             return {
                 "score": final_score,
@@ -379,171 +377,19 @@ BE STRICT. If dates don't match, score must be low."""
             }
             
         except Exception as e:
-            logger.error(f"❌ Evaluation failed: {e}", exc_info=True)
+            logger.error(f"Evaluation failed: {e}", exc_info=True)
             
             # If LLM fails, use programmatic checks only
             if not prog_checks["passed"]:
-                logger.warning("⚠️ Using programmatic checks only due to LLM failure")
-                fallback_score = max(0, 10.0 - prog_checks["penalty"])
-                logger.info(f"   Fallback score: {fallback_score:.1f}")
+                logger.warning("Using programmatic checks only due to LLM failure")
+                fallback_score = max(0, EVALUATOR_DEFAULT_SCORE - prog_checks["penalty"])
                 return {
                     "score": fallback_score,
-                    "passed": fallback_score >= self.threshold,  # FIX: Check threshold, not hardcode False
+                    "passed": fallback_score >= self.threshold,
                     "feedback": "; ".join(prog_checks["issues"]),
                     "criteria_scores": {},
                     "critical_errors": prog_checks["issues"]
                 }
             
-            logger.warning("⚠️ LLM evaluation failed, no programmatic issues found, returning default pass")
-            return {"score": 10.0, "passed": True, "feedback": f"Error: {e}"}
-    
-    def evaluate_with_regeneration(
-        self,
-        prompt: str,
-        generated_email: str,
-        email_expert,
-        enhanced_query: Dict[str, Any] = None,
-        max_length: int = 300,  # ✅ Add parameter with default
-        temperature: float = 0.5  # ✅ Add parameter with default
-    ) -> Tuple[str, Dict[str, Any]]:
-        """
-        Evaluate and regenerate if score < threshold.
-        
-        Returns:
-            (final_email, evaluation_dict)
-        """
-        logger.info(f"🔄 EmailEvaluator.evaluate_with_regeneration() called")
-        logger.info(f"   Max retries: {self.max_retries}, Threshold: {self.threshold}")
-        attempt = 0
-        current_email = generated_email
-        all_evaluations = []
-        
-        while attempt <= self.max_retries:
-            # Evaluate current email
-            logger.info(f"📊 Evaluation attempt {attempt + 1}/{self.max_retries + 1}")
-            evaluation = self.evaluate(prompt, current_email)
-            all_evaluations.append(evaluation)
-            
-            logger.info(f"🔍 Attempt {attempt + 1}: Score={evaluation['score']:.1f}, Passed={evaluation['passed']}")
-            
-            # Check if passed
-            if evaluation["passed"]:
-                logger.info(f"✅ Passed on attempt {attempt + 1} (score: {evaluation['score']:.1f})")
-                evaluation["attempts"] = attempt + 1
-                evaluation["all_scores"] = [e["score"] for e in all_evaluations]
-                return current_email, evaluation
-            
-            # Check max retries
-            if attempt >= self.max_retries:
-                logger.warning(f"⚠️ Max retries reached. Using best attempt.")
-                best_idx = max(range(len(all_evaluations)), key=lambda i: all_evaluations[i]["score"])
-                best_eval = all_evaluations[best_idx]
-                best_eval["attempts"] = attempt + 1
-                best_eval["all_scores"] = [e["score"] for e in all_evaluations]
-                
-                if best_idx == 0:
-                    return generated_email, best_eval
-                else:
-                    return current_email, best_eval
-            
-            # Regenerate with feedback
-            logger.info(f"🔄 Regenerating email (score {evaluation['score']:.1f} < {self.threshold})")
-            logger.info(f"   Feedback: {evaluation['feedback'][:200]}...")
-            if evaluation.get("critical_errors"):
-                logger.warning(f"   Critical errors: {', '.join(evaluation['critical_errors'][:3])}")
-            
-            try:
-                logger.debug(f"   Calling email_expert.generate() with max_length={max_length}, temperature={min(temperature + (attempt * 0.1), 1.0):.2f}")
-                # ✅ Regenerate using passed parameters (from .env)
-                current_email = email_expert.generate(
-                    enhanced_query=enhanced_query,
-                    prompt=prompt,
-                    max_length=max_length,  # Use passed parameter
-                    temperature=min(temperature + (attempt * 0.1), 1.0)  # Slightly increase temp per attempt
-                )
-                
-                # Parse it
-                logger.debug("   Parsing regenerated email...")
-                from .output_parser import OutputParser
-                parser = OutputParser()
-                current_email = parser.parse(current_email, enhanced_query)
-                
-                logger.info(f"   ✅ Regenerated email: {len(current_email)} chars")
-                
-            except Exception as e:
-                logger.error(f"❌ Regeneration failed: {e}")
-                evaluation["attempts"] = attempt + 1
-                evaluation["all_scores"] = [e["score"] for e in all_evaluations]
-                return current_email, evaluation
-            
-            attempt += 1
-        
-        # Fallback
-        evaluation = all_evaluations[-1]
-        evaluation["attempts"] = attempt
-        evaluation["all_scores"] = [e["score"] for e in all_evaluations]
-        return current_email, evaluation
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    
-    # ✅ Use environment variable or default
-    evaluator = EmailEvaluator()  # Will read from .env
-    
-    if not evaluator.enabled:
-        logger.error("❌ No API key")
-    else:
-        logger.info("\n" + "="*60)
-        logger.info("TEST 1: WRONG EMAIL (from your screenshot)")
-        logger.info("="*60)
-        
-        wrong_email = """Subject: Sick Leave Request
-
-Dear Mr. & Mrs. Smith, I am writing to inform you that I have taken sick leave from work. My employer is currently looking for someone to fill in for me. I would like to be available until the end of the week. I will be leaving on Monday, December 10th at 12:00 p.m. Please let me know if you are interested in this position. Thank you.
-
-Best regards,
-[Your Name]"""
-        
-        result = evaluator.evaluate(
-            "Write a professional sick-leave email to HR requesting leave for 17-18 November 2025. Mention that I am unwell, will be unavailable for work, and will provide any required documentation. Keep the tone polite and concise.",
-            wrong_email
-        )
-        
-        logger.info(f"\n📊 LLM Score: {result.get('llm_score', 0):.1f}")
-        logger.info(f"   Penalty: {result.get('penalty', 0):.1f}")
-        logger.info(f"   Final Score: {result['score']:.1f}")
-        logger.info(f"   Passed: {result['passed']}")
-        logger.info(f"   Feedback: {result['feedback']}")
-        if result.get('critical_errors'):
-            logger.info(f"   Critical Errors:")
-            for error in result['critical_errors']:
-                logger.info(f"      - {error}")
-        
-        logger.info("\n" + "="*60)
-        logger.info("TEST 2: CORRECT EMAIL")
-        logger.info("="*60)
-        
-        good_email = """Subject: Sick Leave Request - November 17-18, 2025
-
-Dear HR Team,
-
-I am writing to request sick leave for November 17-18, 2025, as I am currently unwell and will be unavailable for work during this period.
-
-I will provide any required medical documentation upon my return to the office.
-
-Thank you for your understanding.
-
-Best regards,
-John Doe"""
-        
-        result2 = evaluator.evaluate(
-            "Write a professional sick-leave email to HR requesting leave for 17-18 November 2025. Mention that I am unwell, will be unavailable for work, and will provide any required documentation. Keep the tone polite and concise.",
-            good_email
-        )
-        
-        logger.info(f"\n📊 LLM Score: {result2.get('llm_score', 0):.1f}")
-        logger.info(f"   Penalty: {result2.get('penalty', 0):.1f}")
-        logger.info(f"   Final Score: {result2['score']:.1f}")
-        logger.info(f"   Passed: {result2['passed']}")
-        logger.info(f"   Feedback: {result2['feedback']}")
+            logger.warning("LLM evaluation failed, no programmatic issues found, returning default pass")
+            return {"score": EVALUATOR_DEFAULT_SCORE, "passed": True, "feedback": f"Error: {e}"}
