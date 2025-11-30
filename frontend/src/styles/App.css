@@ -345,8 +345,10 @@
 .message-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-sm);
   margin-bottom: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 .expert-badge {
@@ -360,6 +362,13 @@
   background: var(--bg-secondary);
 }
 
+.confidence-section {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
 .confidence-badge {
   padding: 4px var(--spacing-sm);
   border-radius: var(--radius);
@@ -367,6 +376,44 @@
   font-weight: 500;
   background: var(--bg-secondary);
   color: var(--text-secondary);
+}
+
+.routing-reason-details {
+  font-size: 0.75rem;
+}
+
+.routing-reason-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px var(--spacing-sm);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  list-style: none;
+}
+
+.routing-reason-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.routing-reason-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.routing-reason-content {
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  border-left: 2px solid var(--primary-color);
 }
 
 .message-text {

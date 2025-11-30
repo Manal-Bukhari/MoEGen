@@ -136,8 +136,21 @@ class TextRouter:
         for expert, keywords in self.high_confidence_keywords.items():
             for keyword in keywords:
                 if keyword in prompt_lower:
+                    # Find the context around the keyword for a more descriptive reason
+                    keyword_index = prompt_lower.find(keyword)
+                    context_start = max(0, keyword_index - 30)
+                    context_end = min(len(prompt), keyword_index + len(keyword) + 30)
+                    context = prompt[context_start:context_end].strip()
+                    
+                    expert_descriptions = {
+                        "story": "creative narrative generation with character development and plot structure",
+                        "poem": "poetic composition with various styles and verse forms",
+                        "email": "professional communication with proper structure and formal tone"
+                    }
+                    
+                    reason = f"High-confidence keyword match detected: The phrase '{keyword}' in your request ('{context}...') clearly indicates you need {expert_descriptions.get(expert, expert)}. The {expert.capitalize()} expert is specifically designed to handle this type of content."
                     logger.info(f"⚡ Fast route: '{keyword}' → {expert.upper()} expert")
-                    return expert, 0.95
+                    return expert, 0.95, reason
         return None
 
     def llm_route(self, prompt: str) -> tuple:
@@ -164,8 +177,10 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
             selected_expert = expert_map.get(expert_name)
 
             if selected_expert and selected_expert in self.experts:
+                # Generate a detailed reason using LLM
+                reason = self._generate_llm_reason_detailed(prompt, selected_expert)
                 logger.info(f"🤖 LLM route: {selected_expert.upper()} expert (confidence: 0.90)")
-                return selected_expert, 0.90
+                return selected_expert, 0.90, reason
             else:
                 logger.warning(f"⚠️ LLM returned invalid expert: {expert_name}, using fallback")
                 return self._fallback_keyword_route(prompt)
@@ -173,6 +188,70 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
         except Exception as e:
             logger.error(f"❌ LLM routing failed: {e}, using fallback")
             return self._fallback_keyword_route(prompt)
+    
+    def _generate_llm_reason_detailed(self, prompt: str, expert: str) -> str:
+        """Generate a detailed, descriptive reason using LLM for expert selection."""
+        try:
+            reason_prompt = f"""Analyze why the {expert} expert is the best choice for this request.
+
+User request: "{prompt}"
+
+Provide a clear, specific explanation (2-3 sentences) explaining:
+1. What specific elements in the request indicate {expert} expert is needed
+2. Why this expert's capabilities match the request
+3. What type of content the user is asking for
+
+Be specific and reference actual words or phrases from the request if relevant.
+
+Response (just the explanation, no labels):"""
+
+            response = self.llm.invoke(reason_prompt)
+            reason = response.content.strip()
+            
+            # Clean up the reason
+            if reason.startswith("Explanation:"):
+                reason = reason.replace("Explanation:", "").strip()
+            if reason.startswith("Reason:"):
+                reason = reason.replace("Reason:", "").strip()
+            
+            return reason
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to generate detailed reason: {e}, using fallback")
+            return self._generate_simple_reason(prompt, expert)
+    
+    def _generate_simple_reason(self, prompt: str, expert: str) -> str:
+        """Generate a simple keyword-based reason as fallback."""
+        prompt_lower = prompt.lower()
+        
+        # Find specific keywords that match
+        matched_keywords = []
+        if expert in self.expert_keywords:
+            for keyword in self.expert_keywords[expert]:
+                if keyword in prompt_lower:
+                    matched_keywords.append(keyword)
+        
+        if matched_keywords:
+            top_matches = matched_keywords[:5]
+            keyword_list = ', '.join([f'"{kw}"' for kw in top_matches])
+            if len(matched_keywords) > 5:
+                keyword_list += f" and {len(matched_keywords) - 5} more"
+            
+            expert_descriptions = {
+                "story": "creative narrative generation with character development and plot structure",
+                "poem": "poetic composition with various styles like haiku, sonnet, or free verse",
+                "email": "professional communication with proper structure and formal tone"
+            }
+            
+            return f"The request contains {expert}-related terms ({keyword_list}), indicating the need for {expert_descriptions.get(expert, expert)}. The {expert.capitalize()} expert specializes in this type of content generation."
+        
+        expert_descriptions = {
+            "story": "creative narratives, fiction, and storytelling",
+            "poem": "poetry, verses, and poetic compositions",
+            "email": "professional emails and formal communication"
+        }
+        
+        return f"Based on the request analysis, the {expert.capitalize()} expert is selected because the content requires {expert_descriptions.get(expert, expert)} capabilities."
 
     def _fallback_keyword_route(self, prompt: str) -> tuple:
         """Fallback routing using keyword scoring."""
@@ -180,16 +259,40 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
         total_matches = sum(scores.values())
 
         if total_matches == 0:
+            reason = "No specific keywords matched. Defaulting to Email expert as it handles general text generation requests."
             logger.warning("⚠️ No keyword matches found, defaulting to email expert")
-            return "email", 0.5
+            return "email", 0.5, reason
 
         best_expert = max(scores, key=scores.get)
         confidence = scores[best_expert] / total_matches if total_matches > 0 else 0.5
+        
+        # Generate detailed reason based on keyword matches
+        matched_keywords = []
+        prompt_lower = prompt.lower()
+        for keyword in self.expert_keywords.get(best_expert, []):
+            if keyword in prompt_lower:
+                matched_keywords.append(keyword)
+        
+        expert_descriptions = {
+            "story": "creative narratives, character development, and plot structure",
+            "poem": "poetry, verse composition, and poetic forms",
+            "email": "professional communication, formal writing, and business correspondence"
+        }
+        
+        if matched_keywords:
+            top_matches = matched_keywords[:5]  # Show top 5 matches
+            keyword_list = ', '.join([f'"{kw}"' for kw in top_matches])
+            if len(matched_keywords) > 5:
+                keyword_list += f", and {len(matched_keywords) - 5} more related terms"
+            
+            reason = f"Keyword analysis identified {scores[best_expert]} matching terms in your request, including {keyword_list}. These terms strongly indicate the need for {expert_descriptions.get(best_expert, best_expert)} capabilities, which the {best_expert.capitalize()} expert specializes in."
+        else:
+            reason = f"After analyzing keyword patterns, the {best_expert.capitalize()} expert was selected as it best matches the content type implied by your request. This expert handles {expert_descriptions.get(best_expert, best_expert)}."
 
         logger.info(f"🔍 Keyword route: {best_expert.upper()} expert (confidence: {confidence:.2f})")
         logger.debug(f"   Keyword scores: {scores}")
 
-        return best_expert, confidence
+        return best_expert, confidence, reason
 
     def calculate_expert_scores(self, prompt: str) -> Dict[str, int]:
         """Calculate keyword match scores for each expert."""
@@ -208,13 +311,14 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
         Select the appropriate expert for the given prompt.
 
         Returns:
-            tuple: (expert_name, confidence, routing_method)
+            tuple: (expert_name, confidence, routing_method, reason)
         """
         # Force expert if specified
         if force_expert:
+            reason = f"Expert manually selected by user: {force_expert}"
             logger.info(f"🔧 Force expert requested: {force_expert}")
             if force_expert in self.experts:
-                return force_expert, 1.0, "manual"
+                return force_expert, 1.0, "manual", reason
             else:
                 raise ValueError(
                     f"Unknown expert: {force_expert}. "
@@ -224,13 +328,13 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
         # Try fast keyword check first
         fast_result = self.fast_keyword_check(prompt)
         if fast_result:
-            return fast_result[0], fast_result[1], "keyword"
+            return fast_result[0], fast_result[1], "keyword", fast_result[2]
 
         # Fall back to LLM routing
         logger.info("🤖 No obvious keywords, using LLM routing...")
-        expert, confidence = self.llm_route(prompt)
+        expert, confidence, reason = self.llm_route(prompt)
         method = "llm" if (self.use_llm_routing and self.llm) else "fallback"
-        return expert, confidence, method
+        return expert, confidence, method, reason
 
     def route_and_generate(
         self,
@@ -256,7 +360,7 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
         logger.debug(f"   max_length: {max_length}, temperature: {temperature}, force_expert: {force_expert}")
 
         # 1. Select Expert
-        expert_name, confidence, routing_method = self.select_expert(prompt, force_expert)
+        expert_name, confidence, routing_method, routing_reason = self.select_expert(prompt, force_expert)
         expert = self.experts[expert_name]
 
         # Check if expert is available
@@ -327,6 +431,7 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
             "expert": expert_name,
             "confidence": float(confidence),
             "routing_method": routing_method,
+            "routing_reason": routing_reason,
             "all_scores": self.calculate_expert_scores(prompt),
             "enhanced_query": enhanced_query  # Include enhanced query for debugging/testing
         }

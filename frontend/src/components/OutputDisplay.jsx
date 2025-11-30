@@ -1,5 +1,5 @@
 import React from 'react'
-import { BookOpen, PenTool, Mail, Bot, User, Copy, Trash2, ChevronDown, ChevronUp, Code, AlertCircle } from 'lucide-react'
+import { BookOpen, PenTool, Mail, Bot, User, Copy, Trash2, ChevronDown, ChevronUp, Code, AlertCircle, Info } from 'lucide-react'
 
 const expertInfo = {
   story: {
@@ -81,8 +81,21 @@ function OutputDisplay({ message, onClear }) {
               <ExpertIcon size={16} />
               <span>{expert.name}</span>
             </div>
-            <div className="confidence-badge">
-              <span>{confidencePercentage}%</span>
+            <div className="confidence-section">
+              <div className="confidence-badge">
+                <span>{confidencePercentage}%</span>
+              </div>
+              {result.routing_reason && (
+                <details className="routing-reason-details">
+                  <summary className="routing-reason-toggle">
+                    <Info size={14} />
+                    <span>Why this expert?</span>
+                  </summary>
+                  <div className="routing-reason-content">
+                    {result.routing_reason}
+                  </div>
+                </details>
+              )}
             </div>
           </div>
 

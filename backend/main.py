@@ -111,6 +111,7 @@ class GenerationResponse(BaseModel):
     expert_used: str = Field(..., description="Which expert was used")
     confidence: float = Field(..., description="Routing confidence score")
     routing_method: str = Field(..., description="How the expert was selected")
+    routing_reason: Optional[str] = Field(None, description="Reason why this expert was selected")
     prompt: str = Field(..., description="The original prompt")
     all_scores: Dict[str, int] = Field(..., description="Keyword scores for all experts")
     enhanced_query: Optional[Dict[str, Any]] = Field(None, description="Enhanced query from Gemini (for debugging/testing)")
@@ -229,6 +230,7 @@ async def generate_text(request: GenerationRequest):
             expert_used=result["expert"],
             confidence=result["confidence"],
             routing_method=result["routing_method"],
+            routing_reason=result.get("routing_reason"),
             prompt=request.prompt,
             all_scores=result["all_scores"],
             enhanced_query=result.get("enhanced_query")  # Include enhanced query for debugging
@@ -293,6 +295,7 @@ async def generate_with_expert(expert_name: str, request: GenerationRequest):
             expert_used=result["expert"],
             confidence=result["confidence"],
             routing_method=result["routing_method"],
+            routing_reason=result.get("routing_reason"),
             prompt=request.prompt,
             all_scores=result["all_scores"],
             enhanced_query=result.get("enhanced_query")  # Include enhanced query for debugging
