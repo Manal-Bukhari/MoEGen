@@ -25,33 +25,40 @@ class QueryEnhancer:
                 genai.configure(api_key=self.api_key)
                 
                 model_names_to_try = [
+                    model_name,  # Try user-specified model first
                     "gemini-2.5-flash",
                     "gemini-2.0-flash-exp",
                     "gemini-1.5-flash",
-                    "gemini-pro",
-                    model_name
+                    "gemini-pro"
                 ]
                 
                 self.model = None
+                self.model_name = None
                 for model_to_try in model_names_to_try:
+                    if not model_to_try:
+                        continue
                     try:
                         self.model = genai.GenerativeModel(model_to_try)
-                        logger.info(f"✅ Query Enhancer: {model_to_try}")
+                        self.model_name = model_to_try
+                        logger.info(f"✅ Query Enhancer initialized with Gemini: {model_to_try}")
                         self.use_gemini = True
                         break
-                    except:
+                    except (ValueError, AttributeError, RuntimeError) as e:
+                        logger.debug(f"   Model {model_to_try} failed: {str(e)[:100]}")
                         continue
                 
                 if not self.model:
-                    raise Exception("No Gemini models available")
+                    raise RuntimeError("No Gemini models available - all model attempts failed")
                     
-            except Exception as e:
+            except (RuntimeError, ValueError, AttributeError) as e:
                 logger.warning(f"⚠️ Gemini init failed: {e}. Using fallback.")
                 self.model = None
+                self.model_name = None
                 self.use_gemini = False
         else:
             logger.warning("⚠️ GEMINI_API_KEY not set. Using fallback.")
             self.model = None
+            self.model_name = None
             self.use_gemini = False
     
     def enhance(self, user_query: str, expert_type: str = None) -> Dict[str, Any]:
@@ -82,8 +89,22 @@ class QueryEnhancer:
             enhancement_prompt = self._create_generic_prompt(user_query)
         
         try:
-            response = self.model.generate_content(enhancement_prompt)
+            # Generate content with Gemini
+            logger.debug(f"   Sending prompt to Gemini ({self.model_name})...")
+            response = self.model.generate_content(
+                enhancement_prompt,
+                generation_config={
+                    "temperature": 0.3,  # Lower temperature for more consistent JSON output
+                    "top_p": 0.95,
+                    "top_k": 40
+                }
+            )
+            
+            if not response or not hasattr(response, 'text'):
+                raise ValueError("Empty or invalid response from Gemini")
+                
             result_text = response.text.strip()
+            logger.debug(f"   Received response ({len(result_text)} chars)")
             
             # Use robust JSON parser
             logger.debug("🔧 Parsing JSON with robust parser...")
@@ -93,87 +114,173 @@ class QueryEnhancer:
             except (json.JSONDecodeError, ValueError) as e:
                 logger.error(f"❌ JSON parsing failed: {e}")
                 logger.debug(f"   Problematic JSON (first 500 chars): {result_text[:500]}")
+                # Try to extract any useful information before falling back
                 raise
             
+            # Validate and enrich enhanced data
             enhanced_data['original_query'] = user_query
             enhanced_data['expert_type'] = expert_type or 'auto'
             
+            # Ensure required fields exist with defaults
+            if expert_type == "email":
+                enhanced_data.setdefault('email_type', 'general')
+                enhanced_data.setdefault('tone', 'professional')
+                enhanced_data.setdefault('key_points', [])
+                enhanced_data.setdefault('recipient_type', 'general')
+                enhanced_data.setdefault('special_requirements', [])
+                enhanced_data.setdefault('enhanced_instruction', user_query)
+            elif expert_type == "story":
+                enhanced_data.setdefault('genre', 'general')
+                enhanced_data.setdefault('tone', 'creative')
+                enhanced_data.setdefault('key_elements', [])
+                enhanced_data.setdefault('length_preference', 'medium')
+                enhanced_data.setdefault('special_requirements', [])
+                enhanced_data.setdefault('enhanced_instruction', user_query)
+            elif expert_type == "poem":
+                enhanced_data.setdefault('poem_type', 'free_verse')
+                enhanced_data.setdefault('tone', 'expressive')
+                enhanced_data.setdefault('theme', 'general')
+                enhanced_data.setdefault('rhyme_scheme', 'free_verse')
+                enhanced_data.setdefault('special_requirements', [])
+                enhanced_data.setdefault('enhanced_instruction', user_query)
+            
             logger.info(f"✅ Enhanced query for {enhanced_data.get('expert_type', 'unknown')} expert")
-            logger.debug(f"   Enhanced query structure:")
-            logger.debug(f"     - email_type: {enhanced_data.get('email_type', 'N/A')}")
-            logger.debug(f"     - tone: {enhanced_data.get('tone', 'N/A')}")
-            logger.debug(f"     - recipient_type: {enhanced_data.get('recipient_type', 'N/A')}")
-            logger.debug(f"     - key_points: {enhanced_data.get('key_points', [])}")
+            logger.debug("   Enhanced query structure:")
+            if expert_type == "email":
+                logger.debug(f"     - email_type: {enhanced_data.get('email_type', 'N/A')}")
+                logger.debug(f"     - tone: {enhanced_data.get('tone', 'N/A')}")
+                logger.debug(f"     - recipient_type: {enhanced_data.get('recipient_type', 'N/A')}")
+                logger.debug(f"     - key_points: {enhanced_data.get('key_points', [])}")
             logger.debug(f"     - special_requirements: {enhanced_data.get('special_requirements', [])}")
             logger.debug(f"     - enhanced_instruction: {enhanced_data.get('enhanced_instruction', 'N/A')[:100]}...")
             return enhanced_data
             
         except Exception as e:
-            logger.error(f"❌ Enhancement failed: {e}")
+            logger.error(f"❌ Enhancement failed: {e}", exc_info=True)
+            logger.warning("   Falling back to rule-based enhancement")
             return self._fallback_enhancement(user_query, expert_type)
     
     def _create_email_prompt(self, user_query: str) -> str:
         """Create enhancement prompt for email expert."""
-        return f"""Analyze this email request:
+        return f"""You are an expert at analyzing email requests and extracting structured information.
 
-REQUEST: {user_query}
+TASK: Analyze the following email request and extract key information to help generate a professional email.
 
-Return ONLY valid JSON:
+USER REQUEST:
+"{user_query}"
+
+INSTRUCTIONS:
+1. Identify the email type (sick_leave, vacation, meeting, thank_you, inquiry, complaint, resignation, invitation, follow_up, general, etc.)
+2. Determine the appropriate tone (formal, semi-formal, casual, professional, friendly)
+3. Extract all key points that need to be included in the email
+4. Identify the recipient type (HR, manager, boss, supervisor, client, team, colleague, general)
+5. Note any special requirements or constraints
+6. Create a detailed, enhanced instruction that expands on the user's request with context and clarity
+
+IMPORTANT: Return ONLY valid JSON. Do not include any markdown formatting, code blocks, or explanatory text. Just the raw JSON object.
+
+Return this exact JSON structure:
 {{
-    "email_type": "type (sick_leave, vacation, meeting, thank_you, etc.)",
-    "tone": "formal/semi-formal/casual",
-    "key_points": ["main points"],
-    "recipient_type": "HR/manager/client/team/etc",
-    "special_requirements": ["requirements"],
-    "enhanced_instruction": "detailed instruction"
-}}"""
+    "email_type": "sick_leave",
+    "tone": "formal",
+    "key_points": ["point1", "point2"],
+    "recipient_type": "HR",
+    "special_requirements": ["requirement1"],
+    "enhanced_instruction": "A detailed, expanded instruction that provides full context for generating the email"
+}}
+
+JSON:"""
     
     def _create_story_prompt(self, user_query: str) -> str:
         """Create enhancement prompt for story expert."""
-        return f"""Analyze this story request:
+        return f"""You are an expert at analyzing story requests and extracting structured information for creative writing.
 
-REQUEST: {user_query}
+TASK: Analyze the following story request and extract key information to help generate a compelling story.
 
-Return ONLY valid JSON:
+USER REQUEST:
+"{user_query}"
+
+INSTRUCTIONS:
+1. Identify the genre (fantasy, sci-fi, mystery, thriller, romance, horror, adventure, drama, comedy, general, etc.)
+2. Determine the tone (serious, humorous, dark, light, suspenseful, emotional, whimsical, etc.)
+3. Extract key elements: characters mentioned, settings implied, themes, plot elements
+4. Determine length preference (short: 500-1000 words, medium: 1000-2000 words, long: 2000+ words)
+5. Note any special requirements (specific characters, settings, plot twists, style preferences)
+6. Create a detailed, enhanced instruction that expands on the user's request with creative context
+
+IMPORTANT: Return ONLY valid JSON. Do not include any markdown formatting, code blocks, or explanatory text. Just the raw JSON object.
+
+Return this exact JSON structure:
 {{
-    "genre": "fantasy/sci-fi/mystery/thriller/etc",
-    "tone": "serious/humorous/dark/light/etc",
-    "key_elements": ["characters", "settings", "themes"],
-    "length_preference": "short/medium/long",
-    "special_requirements": ["requirements"],
-    "enhanced_instruction": "detailed instruction"
-}}"""
+    "genre": "fantasy",
+    "tone": "adventurous",
+    "key_elements": ["element1", "element2"],
+    "length_preference": "medium",
+    "special_requirements": ["requirement1"],
+    "enhanced_instruction": "A detailed, expanded instruction that provides full creative context for generating the story"
+}}
+
+JSON:"""
     
     def _create_poem_prompt(self, user_query: str) -> str:
         """Create enhancement prompt for poem expert."""
-        return f"""Analyze this poem request:
+        return f"""You are an expert at analyzing poetry requests and extracting structured information for poetic composition.
 
-REQUEST: {user_query}
+TASK: Analyze the following poem request and extract key information to help generate a beautiful poem.
 
-Return ONLY valid JSON:
+USER REQUEST:
+"{user_query}"
+
+INSTRUCTIONS:
+1. Identify the poem type (haiku, sonnet, free_verse, limerick, ballad, ode, acrostic, etc.)
+2. Determine the tone (romantic, melancholic, joyful, serious, contemplative, playful, nostalgic, etc.)
+3. Identify the theme (love, nature, life, friendship, loss, hope, beauty, etc.)
+4. Determine rhyme scheme preference (rhyming, free_verse, specific_pattern)
+5. Note any special requirements (specific meter, imagery, metaphors, length, etc.)
+6. Create a detailed, enhanced instruction that expands on the user's request with poetic context
+
+IMPORTANT: Return ONLY valid JSON. Do not include any markdown formatting, code blocks, or explanatory text. Just the raw JSON object.
+
+Return this exact JSON structure:
 {{
-    "poem_type": "haiku/sonnet/free_verse/limerick/etc",
-    "tone": "romantic/melancholic/joyful/serious/etc",
-    "theme": "love/nature/life/etc",
-    "rhyme_scheme": "rhyming/free_verse",
-    "special_requirements": ["requirements"],
-    "enhanced_instruction": "detailed instruction"
-}}"""
+    "poem_type": "free_verse",
+    "tone": "contemplative",
+    "theme": "nature",
+    "rhyme_scheme": "free_verse",
+    "special_requirements": ["requirement1"],
+    "enhanced_instruction": "A detailed, expanded instruction that provides full poetic context for generating the poem"
+}}
+
+JSON:"""
     
     def _create_generic_prompt(self, user_query: str) -> str:
         """Create generic enhancement prompt that works for all expert types."""
-        return f"""Analyze this text generation request:
+        return f"""You are an expert at analyzing text generation requests and extracting structured information.
 
-REQUEST: {user_query}
+TASK: Analyze the following text generation request and extract key information to help generate appropriate content.
 
-Return ONLY valid JSON:
+USER REQUEST:
+"{user_query}"
+
+INSTRUCTIONS:
+1. Identify the content type (story, poem, email, general)
+2. Determine the appropriate tone based on the request
+3. Extract all key points that need to be included
+4. Note any special requirements or constraints
+5. Create a detailed, enhanced instruction that expands on the user's request with full context
+
+IMPORTANT: Return ONLY valid JSON. Do not include any markdown formatting, code blocks, or explanatory text. Just the raw JSON object.
+
+Return this exact JSON structure:
 {{
-    "content_type": "story/poem/email/general",
-    "tone": "appropriate tone",
-    "key_points": ["main points"],
-    "special_requirements": ["requirements"],
-    "enhanced_instruction": "detailed instruction"
-}}"""
+    "content_type": "general",
+    "tone": "appropriate",
+    "key_points": ["point1", "point2"],
+    "special_requirements": ["requirement1"],
+    "enhanced_instruction": "A detailed, expanded instruction that provides full context for generating the content"
+}}
+
+JSON:"""
     
     def _fallback_enhancement(self, user_query: str, expert_type: str = None) -> Dict[str, Any]:
         """Fallback enhancement when Gemini is not available."""

@@ -272,6 +272,7 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
 
         # 2. Generate content using selected expert
         generated_text = ""
+        enhanced_query = None
 
         try:
             if expert_name == "email":
@@ -326,7 +327,8 @@ Respond with ONLY the expert name in uppercase: STORY, POEM, or EMAIL"""
             "expert": expert_name,
             "confidence": float(confidence),
             "routing_method": routing_method,
-            "all_scores": self.calculate_expert_scores(prompt)
+            "all_scores": self.calculate_expert_scores(prompt),
+            "enhanced_query": enhanced_query  # Include enhanced query for debugging/testing
         }
 
     def get_expert_info(self) -> Dict[str, Any]:

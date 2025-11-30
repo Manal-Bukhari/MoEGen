@@ -106,6 +106,7 @@ class GenerationResponse(BaseModel):
     routing_method: str = Field(..., description="How the expert was selected")
     prompt: str = Field(..., description="The original prompt")
     all_scores: Dict[str, int] = Field(..., description="Keyword scores for all experts")
+    enhanced_query: Optional[Dict[str, Any]] = Field(None, description="Enhanced query from Gemini (for debugging/testing)")
 
 
 class ExpertInfo(BaseModel):
@@ -222,7 +223,8 @@ async def generate_text(request: GenerationRequest):
             confidence=result["confidence"],
             routing_method=result["routing_method"],
             prompt=request.prompt,
-            all_scores=result["all_scores"]
+            all_scores=result["all_scores"],
+            enhanced_query=result.get("enhanced_query")  # Include enhanced query for debugging
         )
 
         logger.info(f"📤 Returning response to client")
@@ -285,7 +287,8 @@ async def generate_with_expert(expert_name: str, request: GenerationRequest):
             confidence=result["confidence"],
             routing_method=result["routing_method"],
             prompt=request.prompt,
-            all_scores=result["all_scores"]
+            all_scores=result["all_scores"],
+            enhanced_query=result.get("enhanced_query")  # Include enhanced query for debugging
         )
 
     except HTTPException:
