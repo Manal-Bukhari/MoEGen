@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import LangGraph agents
-from experts.story_expert.agent import StoryExpertAgent  # ✅ UNCOMMENTED
-# from experts.poem_expert.agent import PoemExpertAgent  # TODO: Implement
+from experts.story_expert.agent import StoryExpertAgent
+from experts.poem_expert.agent import PoemExpertAgent
 from experts.email_expert.agent import EmailExpertAgent
 from routers.text_router import TextRouter
 
@@ -60,8 +60,10 @@ except Exception as e:
     logger.error(f"   ❌ Story Expert initialization failed: {e}")
     story_expert_agent = None
 
-# poem_expert_agent = PoemExpertAgent()  # TODO: Implement when ready
 
+story_expert_agent = StoryExpertAgent()  # TODO: Implement when ready
+poem_expert_agent = PoemExpertAgent()  # TODO: Implement when ready
+email_expert_agent = EmailExpertAgent()
 try:
     logger.info("   Initializing Email Expert...")
     email_expert_agent = EmailExpertAgent()
@@ -73,8 +75,9 @@ except Exception as e:
 # Initialize router with all available experts
 logger.info("🔄 Initializing TextRouter...")
 text_router = TextRouter(
-    story_expert=story_expert_agent,  # ✅ PASSED TO ROUTER
-    poem_expert=None,  # TODO: Replace with poem_expert_agent when ready
+
+    story_expert=story_expert_agent,   # ✅ PASSED TO ROUTER
+    poem_expert=poem_expert_agent,  # TODO: Replace with poem_expert_agent when ready
     email_expert=email_expert_agent
 )
 logger.info("✅ TextRouter initialized")
@@ -245,7 +248,7 @@ async def generate_with_expert(expert_name: str, request: GenerationRequest):
 
     Available experts:
     - story: For creative narratives and fiction
-    - poem: For poetry and verse (coming soon)
+    - poem: For poetry and verse
     - email: For professional communication
     """
     try:
