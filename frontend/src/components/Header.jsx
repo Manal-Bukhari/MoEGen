@@ -1,5 +1,5 @@
 import React from 'react'
-import { Bot, Menu, X } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
 
 function Header({ sidebarOpen, setSidebarOpen }) {
   return (
@@ -14,7 +14,7 @@ function Header({ sidebarOpen, setSidebarOpen }) {
         </button>
         
         <div className="header-title">
-          <Bot size={24} className="header-icon" />
+          <img src="/logo.png" alt="MoE Generator Logo" className="header-logo" />
           <div>
             <h1 className="logo">MoE Generator</h1>
             <p className="tagline">Mixture-of-Experts AI System</p>

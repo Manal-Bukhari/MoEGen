@@ -95,7 +95,7 @@ function App() {
               <div className="welcome-screen">
                 <div className="welcome-content">
                   <div className="welcome-icon">
-                    <Sparkles size={64} />
+                    <img src="/logo.png" alt="MoE Generator Logo" className="welcome-logo" />
                   </div>
                   <h1>Mixture-of-Experts AI</h1>
                   <p>Select an expert mode and start a conversation to generate content</p>
