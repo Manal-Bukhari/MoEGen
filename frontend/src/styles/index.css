@@ -5,23 +5,69 @@
 }
 
 :root {
-  --primary-color: #4A90E2;
-  --secondary-color: #9B59B6;
-  --success-color: #27AE60;
-  --danger-color: #E74C3C;
-  --warning-color: #F39C12;
-  --dark-bg: #1a1a2e;
-  --card-bg: #16213e;
-  --text-primary: #ffffff;
-  --text-secondary: #b8b8b8;
-  --border-color: #2d3561;
-  --shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.4);
+  --primary-color: #6366f1;
+  --primary-hover: #4f46e5;
+  --secondary-color: #8b5cf6;
+  --success-color: #10b981;
+  --danger-color: #ef4444;
+  --warning-color: #f59e0b;
+  
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+  --bg-sidebar: #ffffff;
+  --bg-input: #ffffff;
+  
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  
+  --border-color: #e5e7eb;
+  --border-hover: #d1d5db;
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --bg-sidebar: #1e293b;
+    --bg-input: #1e293b;
+    
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-tertiary: #94a3b8;
+    
+    --border-color: #334155;
+    --border-hover: #475569;
+  }
 }
 
 body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
   min-height: 100vh;
@@ -37,43 +83,33 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background-color: var(--bg-primary);
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 20px;
-  width: 100%;
-}
-
-.main-content {
-  flex: 1;
-  padding: 40px 0;
-}
-
-/* Scrollbar styling */
+/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--dark-bg);
+  background: var(--bg-secondary);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--primary-color);
-  border-radius: 5px;
+  background: var(--border-color);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #357abd;
+  background: var(--border-hover);
 }
 
 /* Animations */
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -81,62 +117,24 @@ body {
   }
 }
 
-@keyframes spin {
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+  }
   to {
-    transform: rotate(360deg);
+    transform: translateX(0);
   }
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
+@keyframes typing {
+  0%, 60%, 100% {
+    transform: translateY(0);
   }
-  50% {
-    opacity: 0.5;
+  30% {
+    transform: translateY(-10px);
   }
 }
 
-.loading-indicator {
-  text-align: center;
-  padding: 40px;
-  animation: fadeIn 0.3s ease-in;
-}
-
-.spinner {
-  width: 50px;
-  height: 50px;
-  margin: 0 auto 20px;
-  border: 4px solid var(--border-color);
-  border-top-color: var(--primary-color);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-.error-message {
-  background: rgba(231, 76, 60, 0.1);
-  border: 2px solid var(--danger-color);
-  border-radius: 12px;
-  padding: 30px;
-  margin-top: 30px;
-  animation: fadeIn 0.3s ease-in;
-}
-
-.error-message h3 {
-  color: var(--danger-color);
-  margin-bottom: 10px;
-}
-
-.error-message p {
-  color: var(--text-secondary);
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .container {
-    padding: 0 15px;
-  }
-
-  .main-content {
-    padding: 20px 0;
-  }
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
 }

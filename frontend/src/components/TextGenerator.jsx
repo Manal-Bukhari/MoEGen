@@ -1,8 +1,25 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { generateText } from '../services/api'
+import { Send, Sparkles, BookOpen, PenTool, Mail } from 'lucide-react'
+
+const expertIcons = {
+  auto: Sparkles,
+  story: BookOpen,
+  poem: PenTool,
+  email: Mail
+}
 
 function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
   const [prompt, setPrompt] = useState('')
+  const [showExamples, setShowExamples] = useState(false)
+  const textareaRef = useRef(null)
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`
+    }
+  }, [prompt])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -19,10 +36,18 @@ function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
         selectedExpert
       )
       onGenerate(result)
+      setPrompt('')
     } catch (err) {
       onError(err.toString())
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit(e)
     }
   }
 
@@ -53,38 +78,75 @@ function TextGenerator({ selectedExpert, onGenerate, onError, setLoading }) {
     return examplePrompts[selectedExpert] || examplePrompts.auto
   }
 
+  const Icon = expertIcons[selectedExpert] || Sparkles
+
   return (
-    <div className="text-generator">
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label htmlFor="prompt">Enter Your Prompt:</label>
+    <div className="chat-input-container">
+      {showExamples && (
+        <div className="example-prompts-panel">
+          <div className="example-prompts-header">
+            <span>Example Prompts</span>
+            <button 
+              className="close-examples"
+              onClick={() => setShowExamples(false)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="example-prompts-list">
+            {getCurrentExamples().map((example, index) => (
+              <button
+                key={index}
+                type="button"
+                className="example-prompt-btn"
+                onClick={() => {
+                  setPrompt(example)
+                  setShowExamples(false)
+                }}
+              >
+                {example}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <form className="chat-input-form" onSubmit={handleSubmit}>
+        <div className="chat-input-wrapper">
+          <div className="expert-indicator">
+            <Icon size={18} />
+          </div>
           <textarea
-            id="prompt"
+            ref={textareaRef}
+            className="chat-input"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Type your prompt here... (e.g., 'Write a story about a brave knight' or 'Compose a poem about nature')"
-            rows="5"
-            required
+            onKeyDown={handleKeyDown}
+            placeholder="Type your message here... (Press Enter to send, Shift+Enter for new line)"
+            rows={1}
           />
-        </div>
-
-        <div className="example-prompts">
-          <p className="example-label">Try these examples:</p>
-          {getCurrentExamples().map((example, index) => (
+          <div className="chat-input-actions">
             <button
-              key={index}
               type="button"
-              className="example-btn"
-              onClick={() => setPrompt(example)}
+              className="example-toggle-btn"
+              onClick={() => setShowExamples(!showExamples)}
+              title="Show examples"
             >
-              {example}
+              <Sparkles size={18} />
             </button>
-          ))}
+            <button 
+              type="submit" 
+              className="send-button"
+              disabled={!prompt.trim()}
+              title="Send message"
+            >
+              <Send size={20} />
+            </button>
+          </div>
         </div>
-
-        <button type="submit" className="generate-btn">
-          ✨ Generate Text
-        </button>
+        <div className="input-footer">
+          <span className="input-hint">AI can make mistakes. Check important info.</span>
+        </div>
       </form>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './styles/App.css'
 import TextGenerator from './components/TextGenerator'
 import ExpertSelector from './components/ExpertSelector'
@@ -6,27 +6,25 @@ import OutputDisplay from './components/OutputDisplay'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import { getExperts } from './services/api'
+import { MessageSquare, Sparkles } from 'lucide-react'
 
 function App() {
   const [experts, setExperts] = useState([])
   const [selectedExpert, setSelectedExpert] = useState('auto')
-  const [generatedResult, setGeneratedResult] = useState(null)
+  const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const messagesEndRef = useRef(null)
 
   useEffect(() => {
-    // Fetch available experts on mount
     const fetchExperts = async () => {
       try {
         const data = await getExperts()
-        console.log('Fetched experts data:', data)  // ✅ Debug log
         
-        // ✅ FIX: Handle both response formats
         if (Array.isArray(data)) {
-          // Backend returns array directly
           setExperts(data)
         } else if (data.experts && Array.isArray(data.experts)) {
-          // Backend returns object with experts key
           setExperts(data.experts)
         } else {
           console.error('Unexpected experts format:', data)
@@ -35,52 +33,108 @@ function App() {
       } catch (err) {
         console.error('Error fetching experts:', err)
         setError('Failed to load experts. Please ensure the backend is running.')
-        setExperts([])  // ✅ Set empty array on error
+        setExperts([])
       }
     }
     fetchExperts()
   }, [])
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
   const handleGenerate = (result) => {
-    setGeneratedResult(result)
+    const userMessage = {
+      type: 'user',
+      content: result.prompt,
+      timestamp: new Date()
+    }
+    
+    const aiMessage = {
+      type: 'ai',
+      content: result.generated_text,
+      result: result,
+      timestamp: new Date()
+    }
+
+    setMessages(prev => [...prev, userMessage, aiMessage])
     setError(null)
   }
 
   const handleError = (err) => {
     setError(err)
-    setGeneratedResult(null)
+    const errorMessage = {
+      type: 'error',
+      content: err,
+      timestamp: new Date()
+    }
+    setMessages(prev => [...prev, errorMessage])
   }
 
   const handleClear = () => {
-    setGeneratedResult(null)
+    setMessages([])
     setError(null)
   }
 
   return (
     <div className="app">
-      <Header />
+      <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
       
-      <main className="main-content">
-        <div className="container">
-          <div className="intro-section">
-            <h2>🎯 Mixture-of-Experts Text Generation</h2>
-            <p>
-              Enter your prompt below and our AI will automatically select the best expert
-              (Story, Poem, or Email) to generate your content. Or choose an expert manually!
-            </p>
-            
-            {/* ✅ Show loading state for experts */}
-            {experts.length === 0 && !error && (
-              <p className="info-text">Loading experts...</p>
-            )}
-          </div>
+      <div className="app-container">
+        <ExpertSelector 
+          experts={experts}
+          selectedExpert={selectedExpert}
+          onSelectExpert={setSelectedExpert}
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+        />
 
-          <div className="generator-section">
-            <ExpertSelector 
-              experts={experts}
-              selectedExpert={selectedExpert}
-              onSelectExpert={setSelectedExpert}
-            />
+        <main className="chat-main">
+          <div className="chat-container">
+            {messages.length === 0 ? (
+              <div className="welcome-screen">
+                <div className="welcome-content">
+                  <div className="welcome-icon">
+                    <Sparkles size={64} />
+                  </div>
+                  <h1>Mixture-of-Experts AI</h1>
+                  <p>Select an expert mode and start a conversation to generate content</p>
+                  <div className="expert-badges">
+                    <span className="expert-badge-item">Story</span>
+                    <span className="expert-badge-item">Poem</span>
+                    <span className="expert-badge-item">Email</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="messages-container">
+                {messages.map((message, index) => (
+                  <OutputDisplay
+                    key={index}
+                    message={message}
+                    onClear={handleClear}
+                  />
+                ))}
+                {loading && (
+                  <div className="message message-ai">
+                    <div className="message-content">
+                      <div className="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+
+            {error && messages.length === 0 && (
+              <div className="error-banner">
+                <p>{error}</p>
+              </div>
+            )}
 
             <TextGenerator 
               selectedExpert={selectedExpert}
@@ -89,29 +143,8 @@ function App() {
               setLoading={setLoading}
             />
           </div>
-
-          {loading && (
-            <div className="loading-indicator">
-              <div className="spinner"></div>
-              <p>Generating your content...</p>
-            </div>
-          )}
-
-          {error && (
-            <div className="error-message">
-              <h3>❌ Error</h3>
-              <p>{error}</p>
-            </div>
-          )}
-
-          {generatedResult && (
-            <OutputDisplay 
-              result={generatedResult}
-              onClear={handleClear}
-            />
-          )}
-        </div>
-      </main>
+        </main>
+      </div>
 
       <Footer />
     </div>
